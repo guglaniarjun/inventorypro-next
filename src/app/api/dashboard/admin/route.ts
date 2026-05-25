@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     }),
     prisma.inventoryItem.findMany({
       where: { ...tenantFilter, status: { not: "Inactive" } },
-      select: { currentStock: true, minimumStockLevel: true, condition: true, status: true },
+      select: { currentStock: true, minimumStockLevel: true },
     }),
   ]);
 
