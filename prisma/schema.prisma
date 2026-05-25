@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id               Int      @id @default(autoincrement())
+  name             String
+  code             String   @unique
+  address          String?
+  contactPerson    String?
+  phone            String?
+  email            String?
+  subscriptionPlan String   @default("basic")
+  status           String   @default("active")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  users        User[]
+  departments  Department[]
+  locations    Location[]
+  inventoryItems InventoryItem[]
+  stockTransactions StockTransaction[]
+  assets       Asset[]
+  assetMovements AssetMovement[]
+  audits       Audit[]
+  approvals    Approval[]
+  activityLogs ActivityLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           Int       @id @default(autoincrement())
+  tenantId     Int?      @map("tenant_id")
+  username     String    @unique
+  fullName     String    @map("full_name")
+  email        String
+  passwordHash String    @map("password_hash")
+  role         String    @default("staff")
+  departmentId Int?      @map("department_id")
+  phone        String?
+  status       String    @default("active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  tenant     Tenant?     @relation(fields: [tenantId], references: [id])
+  department Department? @relation(fields: [departmentId], references: [id])
+
+  @@map("users")
+}
+
+model Department {
+  id             Int      @id @default(autoincrement())
+  tenantId       Int      @map("tenant_id")
+  departmentName String   @map("department_name")
+  departmentCode String   @map("department_code")
+  inchargeName   String?  @map("incharge_name")
+  location       String?
+  phone          String?
+  status         String   @default("active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id])
+  users             User[]
+  inventoryItems    InventoryItem[]
+  stockTransactions StockTransaction[] @relation("DepartmentTransactions")
+  fromTransactions  StockTransaction[] @relation("FromDepartmentTransactions")
+  toTransactions    StockTransaction[] @relation("ToDepartmentTransactions")
+  assets            Asset[]
+  fromMovements     AssetMovement[]    @relation("FromDepartmentMovements")
+  toMovements       AssetMovement[]    @relation("ToDepartmentMovements")
+  audits            Audit[]
+
+  @@map("departments")
+}
+
+model Location {
+  id           Int      @id @default(autoincrement())
+  tenantId     Int      @map("tenant_id")
+  campusName   String   @map("campus_name")
+  buildingName String?  @map("building_name")
+  floorName    String?  @map("floor_name")
+  roomName     String?  @map("room_name")
+  rackNo       String?  @map("rack_no")
+  shelfNo      String?  @map("shelf_no")
+  binNo        String?  @map("bin_no")
+  description  String?
+  status       String   @default("active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant              Tenant             @relation(fields: [tenantId], references: [id])
+  inventoryItems      InventoryItem[]
+  assets              Asset[]
+  fromStockTx         StockTransaction[] @relation("FromLocationTransactions")
+  toStockTx           StockTransaction[] @relation("ToLocationTransactions")
+  fromAssetMovements  AssetMovement[]    @relation("FromLocationMovements")
+  toAssetMovements    AssetMovement[]    @relation("ToLocationMovements")
+
+  @@map("locations")
+}
+
+model InventoryItem {
+  id               Int      @id @default(autoincrement())
+  tenantId         Int      @map("tenant_id")
+  departmentId     Int      @map("department_id")
+  itemPhoto        String?  @map("item_photo")
+  itemName         String   @map("item_name")
+  itemCode         String   @map("item_code")
+  category         String
+  itemType         String   @default("Consumable") @map("item_type")
+  description      String?
+  usedFor          String?  @map("used_for")
+  unit             String   @default("Nos")
+  openingStock     Int      @default(0) @map("opening_stock")
+  currentStock     Int      @default(0) @map("current_stock")
+  minimumStockLevel Int     @default(0) @map("minimum_stock_level")
+  reorderLevel     Int      @default(0) @map("reorder_level")
+  locationId       Int?     @map("location_id")
+  rackNo           String?  @map("rack_no")
+  shelfNo          String?  @map("shelf_no")
+  status           String   @default("Active")
+  remarks          String?
+  createdBy        Int?     @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  tenant       Tenant       @relation(fields: [tenantId], references: [id])
+  department   Department   @relation(fields: [departmentId], references: [id])
+  location     Location?    @relation(fields: [locationId], references: [id])
+  transactions StockTransaction[]
+
+  @@map("inventory_items")
+}
+
+model StockTransaction {
+  id              Int      @id @default(autoincrement())
+  tenantId        Int      @map("tenant_id")
+  itemId          Int      @map("item_id")
+  departmentId    Int      @map("department_id")
+  transactionType String   @map("transaction_type")
+  quantity        Int
+  beforeStock     Int      @map("before_stock")
+  afterStock      Int      @map("after_stock")
+  fromDepartmentId Int?    @map("from_department_id")
+  toDepartmentId  Int?     @map("to_department_id")
+  fromLocationId  Int?     @map("from_location_id")
+  toLocationId    Int?     @map("to_location_id")
+  transactionDate DateTime @map("transaction_date")
+  remarks         String?
+  photoProof      String?  @map("photo_proof")
+  enteredBy       Int      @map("entered_by")
+  approvedBy      Int?     @map("approved_by")
+  approvalStatus  String   @default("Not Required") @map("approval_status")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant         Tenant      @relation(fields: [tenantId], references: [id])
+  item           InventoryItem @relation(fields: [itemId], references: [id])
+  department     Department  @relation("DepartmentTransactions", fields: [departmentId], references: [id])
+  fromDepartment Department? @relation("FromDepartmentTransactions", fields: [fromDepartmentId], references: [id])
+  toDepartment   Department? @relation("ToDepartmentTransactions", fields: [toDepartmentId], references: [id])
+  fromLocation   Location?   @relation("FromLocationTransactions", fields: [fromLocationId], references: [id])
+  toLocation     Location?   @relation("ToLocationTransactions", fields: [toLocationId], references: [id])
+
+  @@map("stock_transactions")
+}
+
+model Asset {
+  id                   Int      @id @default(autoincrement())
+  tenantId             Int      @map("tenant_id")
+  assetPhoto           String?  @map("asset_photo")
+  assetName            String   @map("asset_name")
+  assetCode            String   @map("asset_code")
+  qrCode               String?  @map("qr_code")
+  assetCategory        String   @map("asset_category")
+  departmentId         Int      @map("department_id")
+  currentLocationId    Int?     @map("current_location_id")
+  assignedToUserId     Int?     @map("assigned_to_user_id")
+  assignedToPersonName String?  @map("assigned_to_person_name")
+  quantity             Int      @default(1)
+  isBulkAsset          Boolean  @default(false) @map("is_bulk_asset")
+  purchaseDate         DateTime? @map("purchase_date")
+  purchaseValue        Decimal? @map("purchase_value") @db.Decimal(12, 2)
+  vendorName           String?  @map("vendor_name")
+  invoiceNumber        String?  @map("invoice_number")
+  warrantyStartDate    DateTime? @map("warranty_start_date")
+  warrantyEndDate      DateTime? @map("warranty_end_date")
+  amcDetails           String?  @map("amc_details")
+  condition            String   @default("Good")
+  status               String   @default("In Use")
+  remarks              String?
+  createdBy            Int?     @map("created_by")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  tenant          Tenant        @relation(fields: [tenantId], references: [id])
+  department      Department    @relation(fields: [departmentId], references: [id])
+  currentLocation Location?     @relation(fields: [currentLocationId], references: [id])
+  movements       AssetMovement[]
+
+  @@map("assets")
+}
+
+model AssetMovement {
+  id              Int      @id @default(autoincrement())
+  tenantId        Int      @map("tenant_id")
+  assetId         Int      @map("asset_id")
+  movementType    String   @map("movement_type")
+  quantity        Int      @default(1)
+  fromDepartmentId Int?    @map("from_department_id")
+  toDepartmentId  Int?     @map("to_department_id")
+  fromLocationId  Int?     @map("from_location_id")
+  toLocationId    Int?     @map("to_location_id")
+  fromPerson      String?  @map("from_person")
+  toPerson        String?  @map("to_person")
+  movementDate    DateTime @map("movement_date")
+  movedBy         Int      @map("moved_by")
+  approvedBy      Int?     @map("approved_by")
+  approvalStatus  String   @default("Not Required") @map("approval_status")
+  remarks         String?
+  photoProof      String?  @map("photo_proof")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  tenant         Tenant     @relation(fields: [tenantId], references: [id])
+  asset          Asset      @relation(fields: [assetId], references: [id])
+  fromDepartment Department? @relation("FromDepartmentMovements", fields: [fromDepartmentId], references: [id])
+  toDepartment   Department? @relation("ToDepartmentMovements", fields: [toDepartmentId], references: [id])
+  fromLocation   Location?   @relation("FromLocationMovements", fields: [fromLocationId], references: [id])
+  toLocation     Location?   @relation("ToLocationMovements", fields: [toLocationId], references: [id])
+
+  @@map("asset_movements")
+}
+
+model Audit {
+  id            Int       @id @default(autoincrement())
+  tenantId      Int       @map("tenant_id")
+  auditType     String    @default("inventory") @map("audit_type")
+  departmentId  Int       @map("department_id")
+  auditTitle    String    @map("audit_title")
+  auditDate     DateTime  @map("audit_date")
+  auditorId     Int       @map("auditor_id")
+  status        String    @default("Draft")
+  totalItems    Int       @default(0) @map("total_items")
+  shortageCount Int       @default(0) @map("shortage_count")
+  excessCount   Int       @default(0) @map("excess_count")
+  missingCount  Int       @default(0) @map("missing_count")
+  damagedCount  Int       @default(0) @map("damaged_count")
+  remarks       String?
+  completedAt   DateTime? @map("completed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant     Tenant      @relation(fields: [tenantId], references: [id])
+  department Department  @relation(fields: [departmentId], references: [id])
+  items      AuditItem[]
+
+  @@map("audits")
+}
+
+model AuditItem {
+  id               Int      @id @default(autoincrement())
+  auditId          Int      @map("audit_id")
+  referenceId      Int      @map("reference_id")
+  referenceName    String   @map("reference_name")
+  referenceCode    String   @map("reference_code")
+  expectedQuantity Int      @map("expected_quantity")
+  physicalQuantity Int      @map("physical_quantity")
+  difference       Int      @default(0)
+  expectedLocation String?  @map("expected_location")
+  actualLocation   String?  @map("actual_location")
+  conditionFound   String?  @map("condition_found")
+  damageStatus     String?  @map("damage_status")
+  photoProof       String?  @map("photo_proof")
+  remarks          String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  audit Audit @relation(fields: [auditId], references: [id], onDelete: Cascade)
+
+  @@map("audit_items")
+}
+
+model Approval {
+  id          Int       @id @default(autoincrement())
+  tenantId    Int       @map("tenant_id")
+  module      String
+  recordId    Int       @map("record_id")
+  description String
+  requestedBy Int       @map("requested_by")
+  status      String    @default("Pending")
+  processedBy Int?      @map("processed_by")
+  processedAt DateTime? @map("processed_at")
+  remarks     String?
+  requestedAt DateTime  @default(now()) @map("requested_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@map("approvals")
+}
+
+model ActivityLog {
+  id          Int      @id @default(autoincrement())
+  tenantId    Int?     @map("tenant_id")
+  userId      Int      @map("user_id")
+  userName    String   @map("user_name")
+  actionType  String   @map("action_type")
+  module      String
+  recordId    Int?     @map("record_id")
+  description String
+  oldValue    Json?    @map("old_value")
+  newValue    Json?    @map("new_value")
+  ipAddress   String?  @map("ip_address")
+  timestamp   DateTime @default(now())
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id])
+
+  @@map("activity_logs")
+}
