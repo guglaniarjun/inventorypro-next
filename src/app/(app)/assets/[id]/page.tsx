@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, MapPin, User, Wrench, ArrowLeftRight, PlusCircle, Trash2 } from "lucide-react";
+import { ChevronLeft, MapPin, User, Wrench, ArrowLeftRight, PlusCircle, Trash2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { formatDate, formatCurrency } from "@/lib/utils";
 
@@ -15,7 +15,11 @@ interface Asset {
   warrantyStartDate: string | null; warrantyEndDate: string | null;
   amcDetails: string | null; remarks: string | null; assetPhoto: string | null;
   quantity: number;
-  movements: Array<{ id: number; movementType: string; movementDate: string; quantity: number; fromDepartmentName: string | null; toDepartmentName: string | null; toPerson: string | null; remarks: string | null; }>;
+  movements: Array<{
+    id: number; movementType: string; movementDate: string; quantity: number;
+    fromDepartmentName: string | null; toDepartmentName: string | null;
+    toPerson: string | null; remarks: string | null; approvalStatus: string;
+  }>;
 }
 
 type ActionType = "assign" | "transfer" | "repair" | "condition" | "addqty" | "discard" | null;
@@ -29,6 +33,7 @@ export default function AssetDetailPage() {
   const [locations, setLocations] = useState<Array<{ id: number; locationPath: string }>>([]);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(false);
 
   const load = () => {
     fetch(`/api/assets/${id}`).then(r => r.json()).then((d: Asset) => { setAsset(d); setLoading(false); }).catch(() => setLoading(false));
@@ -40,7 +45,7 @@ export default function AssetDetailPage() {
     fetch("/api/locations?limit=100").then(r => r.json()).then((d: { data: typeof locations }) => setLocations(d.data));
   }, []);
 
-  function openAction(a: ActionType) { setAction(a); setFormData({ quantity: "1" }); }
+  function openAction(a: ActionType) { setAction(a); setFormData({ quantity: "1" }); setRequireApproval(false); }
 
   async function submitMovement(type: string, extraData: Record<string, unknown>) {
     if (!asset) return;
@@ -51,18 +56,32 @@ export default function AssetDetailPage() {
         assetId: asset.id, movementType: type,
         movementDate: new Date().toISOString().slice(0, 10),
         fromDepartmentId: asset.departmentId,
+        requireApproval,
         ...extraData,
       }),
     });
     setSaving(false);
-    if (res.ok) { toast.success("Action recorded"); setAction(null); setFormData({}); load(); }
-    else { const d = await res.json() as { error?: string }; toast.error(d.error ?? "Failed"); }
+    if (res.ok) {
+      const data = await res.json() as { requiresApproval?: boolean };
+      if (data.requiresApproval) {
+        toast.success("Approval request submitted — awaiting admin approval");
+      } else {
+        toast.success("Action recorded");
+      }
+      setAction(null); setFormData({}); setRequireApproval(false); load();
+    } else {
+      const d = await res.json() as { error?: string };
+      toast.error(d.error ?? "Failed");
+    }
   }
 
   if (loading) return <div className="p-6"><div className="h-32 bg-muted animate-pulse rounded-xl" /></div>;
   if (!asset) return <div className="p-6 text-center text-muted-foreground">Asset not found</div>;
 
   const condColor = { Excellent: "bg-green-100 text-green-700", Good: "bg-blue-100 text-blue-700", Fair: "bg-yellow-100 text-yellow-700", Poor: "bg-orange-100 text-orange-700", Damaged: "bg-red-100 text-red-700" }[asset.condition] ?? "bg-gray-100 text-gray-700";
+  const inputCls = "w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+
+  const needsApprovalToggle = action === "addqty" || action === "discard" || action === "transfer";
 
   return (
     <div className="p-6 space-y-6">
@@ -113,6 +132,7 @@ export default function AssetDetailPage() {
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Type</th>
                   <th className="px-4 py-2.5 text-center font-medium text-muted-foreground">Qty</th>
                   <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Details</th>
+                  <th className="px-4 py-2.5 text-center font-medium text-muted-foreground">Status</th>
                 </tr></thead>
                 <tbody className="divide-y divide-border">
                   {asset.movements.map(m => (
@@ -121,6 +141,16 @@ export default function AssetDetailPage() {
                       <td className="px-4 py-2.5"><span className="px-2 py-0.5 bg-secondary rounded-full text-xs font-medium">{m.movementType}</span></td>
                       <td className="px-4 py-2.5 text-center font-mono text-xs">{m.quantity}</td>
                       <td className="px-4 py-2.5 text-muted-foreground text-xs">{m.toPerson ?? m.toDepartmentName ?? m.remarks ?? "-"}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                          m.approvalStatus === "Pending" ? "bg-amber-100 text-amber-700" :
+                          m.approvalStatus === "Approved" ? "bg-green-100 text-green-700" :
+                          m.approvalStatus === "Rejected" ? "bg-red-100 text-red-700" :
+                          "bg-secondary text-secondary-foreground"
+                        }`}>
+                          {m.approvalStatus === "Not Required" ? "Done" : m.approvalStatus}
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -167,47 +197,47 @@ export default function AssetDetailPage() {
               <>
                 <p className="text-sm text-muted-foreground">Current quantity: <span className="font-semibold text-foreground">{asset.quantity}</span></p>
                 <div><label className="block text-sm font-medium mb-1">Quantity to Add *</label>
-                  <input type="number" min={1} value={formData.quantity ?? "1"} onChange={e => setFormData(f => ({ ...f, quantity: e.target.value }))} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                  <input type="number" min={1} value={formData.quantity ?? "1"} onChange={e => setFormData(f => ({ ...f, quantity: e.target.value }))} className={inputCls} />
                 </div>
                 <div><label className="block text-sm font-medium mb-1">Remarks</label>
-                  <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={2} placeholder="e.g. received from vendor" className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+                  <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={2} placeholder="e.g. received from vendor" className={`${inputCls} resize-none`} />
                 </div>
               </>
             )}
 
             {action === "assign" && (
               <div><label className="block text-sm font-medium mb-1">Assign To</label>
-                <input value={formData.toPerson ?? ""} onChange={e => setFormData(f => ({ ...f, toPerson: e.target.value }))} placeholder="Person name" className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                <input value={formData.toPerson ?? ""} onChange={e => setFormData(f => ({ ...f, toPerson: e.target.value }))} placeholder="Person name" className={inputCls} />
               </div>
             )}
 
             {action === "transfer" && (
               <>
                 <div><label className="block text-sm font-medium mb-1">Transfer To Department</label>
-                  <select value={formData.toDepartmentId ?? ""} onChange={e => setFormData(f => ({ ...f, toDepartmentId: e.target.value }))} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                  <select value={formData.toDepartmentId ?? ""} onChange={e => setFormData(f => ({ ...f, toDepartmentId: e.target.value }))} className={inputCls}>
                     <option value="">Select department</option>
                     {depts.map(d => <option key={d.id} value={d.id}>{d.departmentName}</option>)}
                   </select>
                 </div>
                 <div><label className="block text-sm font-medium mb-1">Transfer To Location</label>
-                  <select value={formData.toLocationId ?? ""} onChange={e => setFormData(f => ({ ...f, toLocationId: e.target.value }))} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                  <select value={formData.toLocationId ?? ""} onChange={e => setFormData(f => ({ ...f, toLocationId: e.target.value }))} className={inputCls}>
                     <option value="">No location change</option>
                     {locations.map(l => <option key={l.id} value={l.id}>{l.locationPath}</option>)}
                   </select>
                 </div>
                 <div><label className="block text-sm font-medium mb-1">Quantity to Transfer</label>
-                  <input type="number" min={1} max={asset.quantity} value={formData.quantity ?? "1"} onChange={e => setFormData(f => ({ ...f, quantity: e.target.value }))} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                  <input type="number" min={1} max={asset.quantity} value={formData.quantity ?? "1"} onChange={e => setFormData(f => ({ ...f, quantity: e.target.value }))} className={inputCls} />
                   <p className="text-xs text-muted-foreground mt-1">Available: {asset.quantity}</p>
                 </div>
                 <div><label className="block text-sm font-medium mb-1">Remarks</label>
-                  <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={2} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+                  <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={2} className={`${inputCls} resize-none`} />
                 </div>
               </>
             )}
 
             {action === "repair" && (
               <div><label className="block text-sm font-medium mb-1">Repair Notes</label>
-                <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={3} placeholder="Describe the issue..." className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+                <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={3} placeholder="Describe the issue..." className={`${inputCls} resize-none`} />
               </div>
             )}
 
@@ -215,23 +245,37 @@ export default function AssetDetailPage() {
               <>
                 <p className="text-sm text-muted-foreground">Current quantity: <span className="font-semibold text-foreground">{asset.quantity}</span></p>
                 <div><label className="block text-sm font-medium mb-1">Quantity to Discard *</label>
-                  <input type="number" min={1} max={asset.quantity} value={formData.quantity ?? "1"} onChange={e => setFormData(f => ({ ...f, quantity: e.target.value }))} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+                  <input type="number" min={1} max={asset.quantity} value={formData.quantity ?? "1"} onChange={e => setFormData(f => ({ ...f, quantity: e.target.value }))} className={inputCls} />
                   {parseInt(formData.quantity ?? "1") >= asset.quantity && (
                     <p className="text-xs text-red-500 mt-1">This will mark the asset as Discarded</p>
                   )}
                 </div>
                 <div><label className="block text-sm font-medium mb-1">Reason</label>
-                  <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={2} placeholder="Reason for discarding..." className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none" />
+                  <textarea value={formData.remarks ?? ""} onChange={e => setFormData(f => ({ ...f, remarks: e.target.value }))} rows={2} placeholder="Reason for discarding..." className={`${inputCls} resize-none`} />
                 </div>
               </>
             )}
 
             {action === "condition" && (
               <div><label className="block text-sm font-medium mb-1">New Condition</label>
-                <select value={formData.newCondition ?? asset.condition} onChange={e => setFormData(f => ({ ...f, newCondition: e.target.value }))} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+                <select value={formData.newCondition ?? asset.condition} onChange={e => setFormData(f => ({ ...f, newCondition: e.target.value }))} className={inputCls}>
                   {["Excellent","Good","Fair","Poor","Damaged"].map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
+            )}
+
+            {/* Approval toggle for quantity-affecting actions */}
+            {needsApprovalToggle && (
+              <label className="flex items-center gap-3 p-3 border border-input rounded-lg cursor-pointer hover:bg-muted/30 transition-colors">
+                <input type="checkbox" checked={requireApproval} onChange={e => setRequireApproval(e.target.checked)} className="w-4 h-4 rounded" />
+                <div>
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    <ShieldCheck className="w-4 h-4 text-amber-600" />
+                    Request Admin Approval
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">Action will be pending until approved</p>
+                </div>
+              </label>
             )}
 
             <div className="flex gap-3 justify-end">
@@ -249,8 +293,12 @@ export default function AssetDetailPage() {
                 else if (action === "repair") submitMovement("Repair", { remarks: formData.remarks, newStatus: "Under Repair" });
                 else if (action === "discard") submitMovement("Discard", { quantity: qty, remarks: formData.remarks });
                 else if (action === "condition") submitMovement("Condition Update", { newCondition: formData.newCondition ?? asset.condition });
-              }} className={`px-4 py-2 text-sm text-white rounded-lg disabled:opacity-60 ${action === "discard" ? "bg-red-500 hover:bg-red-600" : action === "addqty" ? "bg-green-600 hover:bg-green-500" : "bg-blue-600 hover:bg-blue-500"}`}>
-                {saving ? "Saving..." : "Confirm"}
+              }} className={`px-4 py-2 text-sm text-white rounded-lg disabled:opacity-60 ${
+                action === "discard" ? "bg-red-500 hover:bg-red-600" :
+                action === "addqty" ? "bg-green-600 hover:bg-green-500" :
+                requireApproval ? "bg-amber-500 hover:bg-amber-600" :
+                "bg-blue-600 hover:bg-blue-500"}`}>
+                {saving ? "Saving..." : requireApproval ? "Submit for Approval" : "Confirm"}
               </button>
             </div>
           </div>
