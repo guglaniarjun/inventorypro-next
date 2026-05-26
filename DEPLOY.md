@@ -55,7 +55,7 @@ npx prisma db push
 ### 6. Seed demo data
 
 ```bash
-npx ts-node --project tsconfig.json prisma/seed.ts
+npm run db:seed
 ```
 
 ### 7. Build the app
