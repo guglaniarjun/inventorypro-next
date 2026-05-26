@@ -22,8 +22,9 @@ interface BulkRow {
   remarks: string;
 }
 
+let _rowCounter = 0;
 function newRow(): BulkRow {
-  return { id: crypto.randomUUID(), quantity: "1", condition: "Good", departmentId: "", locationId: "", status: "In Use", assignedToPersonName: "", remarks: "" };
+  return { id: `row-${Date.now()}-${++_rowCounter}`, quantity: "1", condition: "Good", departmentId: "", locationId: "", status: "In Use", assignedToPersonName: "", remarks: "" };
 }
 
 export default function NewAssetPage() {
