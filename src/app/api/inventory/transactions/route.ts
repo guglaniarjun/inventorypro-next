@@ -65,6 +65,7 @@ export async function POST(req: NextRequest) {
     transactionDate?: string; remarks?: string;
     fromDepartmentId?: number; toDepartmentId?: number;
     fromLocationId?: number; toLocationId?: number;
+    requireApproval?: boolean;
   };
 
   if (!body.itemId || !body.transactionType || !body.quantity || !body.transactionDate) {
@@ -87,6 +88,51 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Insufficient stock" }, { status: 400 });
   }
 
+  // ─── APPROVAL REQUIRED MODE ─────────────────────────────────────────────
+  if (body.requireApproval) {
+    const tx = await prisma.stockTransaction.create({
+      data: {
+        tenantId: session.user.tenantId!,
+        itemId: body.itemId,
+        departmentId: item.departmentId,
+        transactionType: body.transactionType,
+        quantity: isIn ? qty : isTransfer ? qty : -qty,
+        beforeStock: item.currentStock,
+        afterStock,
+        fromDepartmentId: body.fromDepartmentId ?? null,
+        toDepartmentId: body.toDepartmentId ?? null,
+        fromLocationId: body.fromLocationId ?? null,
+        toLocationId: body.toLocationId ?? null,
+        transactionDate: new Date(body.transactionDate),
+        remarks: body.remarks ?? null,
+        enteredBy: session.user.id,
+        approvalStatus: "Pending",
+      },
+    });
+
+    const approval = await prisma.approval.create({
+      data: {
+        tenantId: session.user.tenantId!,
+        module: "Inventory-Transaction",
+        recordId: tx.id,
+        description: `${body.transactionType}: ${qty} ${item.unit} of ${item.itemName} (Current stock: ${item.currentStock} → ${afterStock})`,
+        requestedBy: session.user.id,
+        status: "Pending",
+      },
+    });
+
+    await logActivity({
+      user: session.user,
+      actionType: "APPROVAL_REQUEST",
+      module: "Inventory",
+      recordId: tx.id,
+      description: `Approval requested for ${body.transactionType}: ${qty} ${item.unit} of ${item.itemName}`,
+    });
+
+    return NextResponse.json({ requiresApproval: true, approvalId: approval.id, transactionId: tx.id }, { status: 201 });
+  }
+
+  // ─── DIRECT EXECUTION (admin/instant) ───────────────────────────────────
   const [tx] = await prisma.$transaction([
     prisma.stockTransaction.create({
       data: {
