@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Plus, Search, Filter, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
+import { Plus, Search, AlertTriangle, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface Item {
   id: number; itemName: string; itemCode: string; category: string; itemType: string;
@@ -17,9 +18,16 @@ export default function InventoryItemsPage() {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<Filters>({ search: "", category: "", status: "", departmentId: "" });
   const [categories, setCategories] = useState<string[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<Item | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    fetch("/api/inventory/items/categories").then((r) => r.json()).then((c: string[]) => setCategories(c));
+    fetch("/api/inventory/items/categories")
+      .then(r => r.json()).then((c: unknown) => { if (Array.isArray(c)) setCategories(c as string[]); }).catch(() => {});
+    fetch("/api/auth/me").then(r => r.json())
+      .then((u: { role?: string }) => setIsAdmin(["admin", "tenant_super_admin", "platform_super_admin"].includes(u?.role ?? "")))
+      .catch(() => {});
   }, []);
 
   const load = useCallback(() => {
@@ -29,9 +37,8 @@ export default function InventoryItemsPage() {
     if (filters.category) p.set("category", filters.category);
     if (filters.status) p.set("status", filters.status);
     if (filters.departmentId) p.set("departmentId", filters.departmentId);
-
     fetch(`/api/inventory/items?${p}`)
-      .then((r) => r.json())
+      .then(r => r.json())
       .then((d: { data: Item[]; total: number }) => { setItems(d.data); setTotal(d.total); setLoading(false); })
       .catch(() => setLoading(false));
   }, [filters]);
@@ -39,7 +46,16 @@ export default function InventoryItemsPage() {
   useEffect(() => { load(); }, [load]);
 
   function setFilter(key: keyof Filters, val: string) {
-    setFilters((f) => ({ ...f, [key]: val }));
+    setFilters(f => ({ ...f, [key]: val }));
+  }
+
+  async function handleDelete() {
+    if (!confirmDel) return;
+    setDeleting(true);
+    const res = await fetch(`/api/inventory/items/${confirmDel.id}`, { method: "DELETE" });
+    setDeleting(false);
+    if (res.ok) { toast.success("Item deleted"); setConfirmDel(null); load(); }
+    else { const d = await res.json() as { error?: string }; toast.error(d.error ?? "Failed to delete"); }
   }
 
   return (
@@ -49,22 +65,24 @@ export default function InventoryItemsPage() {
           <h1 className="text-2xl font-bold">Inventory Items</h1>
           <p className="text-sm text-muted-foreground">{total} items</p>
         </div>
-        <Link href="/inventory/items/new" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500">
-          <Plus className="w-4 h-4" /> Add Item
-        </Link>
+        {isAdmin && (
+          <Link href="/inventory/items/new" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500">
+            <Plus className="w-4 h-4" /> Add Item
+          </Link>
+        )}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <input value={filters.search} onChange={(e) => setFilter("search", e.target.value)} placeholder="Search items..." className="w-full pl-9 pr-3 py-2 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+          <input value={filters.search} onChange={e => setFilter("search", e.target.value)} placeholder="Search items..."
+            className="w-full pl-9 pr-3 py-2 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
         </div>
-        <select value={filters.category} onChange={(e) => setFilter("category", e.target.value)} className="border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+        <select value={filters.category} onChange={e => setFilter("category", e.target.value)} className="border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
           <option value="">All Categories</option>
-          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+          {categories.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
-        <select value={filters.status} onChange={(e) => setFilter("status", e.target.value)} className="border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
+        <select value={filters.status} onChange={e => setFilter("status", e.target.value)} className="border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
           <option value="">All Status</option>
           <option value="Active">Active</option>
           <option value="Low Stock">Low Stock</option>
@@ -72,7 +90,6 @@ export default function InventoryItemsPage() {
         </select>
       </div>
 
-      {/* Table */}
       <div className="bg-white border border-border rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -83,15 +100,16 @@ export default function InventoryItemsPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Department</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">Stock</th>
                 <th className="px-4 py-3 text-center font-medium text-muted-foreground">Status</th>
+                {isAdmin && <th className="px-4 py-3 text-center font-medium text-muted-foreground w-20">Actions</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading
                 ? Array.from({ length: 8 }).map((_, i) => (
-                    <tr key={i}><td colSpan={5} className="px-4 py-3"><div className="h-4 bg-muted animate-pulse rounded" /></td></tr>
+                    <tr key={i}><td colSpan={isAdmin ? 6 : 5} className="px-4 py-3"><div className="h-4 bg-muted animate-pulse rounded" /></td></tr>
                   ))
-                : items.map((item) => (
-                    <tr key={item.id} className="hover:bg-muted/30 transition-colors">
+                : items.map(item => (
+                    <tr key={item.id} className="hover:bg-muted/30 transition-colors group">
                       <td className="px-4 py-3">
                         <Link href={`/inventory/items/${item.id}`} className="hover:text-blue-600">
                           <p className="font-medium">{item.itemName}</p>
@@ -112,16 +130,43 @@ export default function InventoryItemsPage() {
                           item.status === "Low Stock" ? "bg-amber-100 text-amber-700" : "bg-red-100 text-red-700"
                         }`}>{item.status}</span>
                       </td>
+                      {isAdmin && (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Link href={`/inventory/items/${item.id}`} title="Edit"
+                              className="p-1.5 rounded-md text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Link>
+                            <button onClick={() => setConfirmDel(item)} title="Delete"
+                              className="p-1.5 rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))
               }
               {!loading && items.length === 0 && (
-                <tr><td colSpan={5} className="text-center text-muted-foreground py-12">No items found</td></tr>
+                <tr><td colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground py-12">No items found</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {confirmDel && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm space-y-4">
+            <h2 className="text-lg font-semibold">Delete Item?</h2>
+            <p className="text-sm text-muted-foreground">Delete <strong>{confirmDel.itemName}</strong> and all its stock history? This cannot be undone.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmDel(null)} className="px-4 py-2 text-sm border border-input rounded-lg hover:bg-muted">Cancel</button>
+              <button onClick={handleDelete} disabled={deleting} className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-500 disabled:opacity-60">{deleting ? "Deleting..." : "Delete"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
