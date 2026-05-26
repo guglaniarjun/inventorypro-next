@@ -60,6 +60,7 @@ export async function POST(req: NextRequest) {
     fromPerson?: string | null; toPerson?: string | null;
     movementDate?: string; remarks?: string | null;
     newCondition?: string; newStatus?: string;
+    requireApproval?: boolean;
   };
 
   if (!body.assetId || !body.movementType || !body.movementDate) {
@@ -73,6 +74,50 @@ export async function POST(req: NextRequest) {
 
   const qty = body.quantity ?? 1;
 
+  // ─── APPROVAL REQUIRED MODE ─────────────────────────────────────────────
+  if (body.requireApproval) {
+    const movement = await prisma.assetMovement.create({
+      data: {
+        tenantId: session.user.tenantId!,
+        assetId: body.assetId,
+        movementType: body.movementType,
+        quantity: qty,
+        fromDepartmentId: body.fromDepartmentId ?? null,
+        toDepartmentId: body.toDepartmentId ?? null,
+        fromLocationId: body.fromLocationId ?? null,
+        toLocationId: body.toLocationId ?? null,
+        fromPerson: body.fromPerson ?? null,
+        toPerson: body.toPerson ?? null,
+        movementDate: new Date(body.movementDate),
+        movedBy: session.user.id,
+        approvalStatus: "Pending",
+        remarks: body.remarks ?? null,
+      },
+    });
+
+    const approval = await prisma.approval.create({
+      data: {
+        tenantId: session.user.tenantId!,
+        module: "Asset-Movement",
+        recordId: movement.id,
+        description: `${body.movementType}: ${asset.assetName} (${asset.assetCode}) — qty: ${qty}${body.toDepartmentId ? " · Transfer" : ""}`,
+        requestedBy: session.user.id,
+        status: "Pending",
+      },
+    });
+
+    await logActivity({
+      user: session.user,
+      actionType: "APPROVAL_REQUEST",
+      module: "Assets",
+      recordId: movement.id,
+      description: `Approval requested for ${body.movementType}: ${asset.assetName}`,
+    });
+
+    return NextResponse.json({ requiresApproval: true, approvalId: approval.id, movementId: movement.id }, { status: 201 });
+  }
+
+  // ─── DIRECT EXECUTION ───────────────────────────────────────────────────
   const movement = await prisma.assetMovement.create({
     data: {
       tenantId: session.user.tenantId!,
@@ -92,23 +137,19 @@ export async function POST(req: NextRequest) {
     },
   });
 
-  // Update asset state based on movement type
   const assetUpdate: Record<string, unknown> = {};
 
   if (body.movementType === "Stock Addition") {
-    // Add more units to existing asset
     await prisma.asset.update({
       where: { id: body.assetId },
       data: { quantity: { increment: qty } },
     });
   } else if (body.movementType === "Discard") {
-    // Reduce quantity; mark discarded if all gone
     const newQty = Math.max(0, asset.quantity - qty);
     assetUpdate.quantity = newQty;
     if (newQty <= 0) assetUpdate.status = "Discarded";
     await prisma.asset.updateMany({ where: { id: body.assetId }, data: assetUpdate });
   } else {
-    // Standard movement — update department, location, person, condition, status
     if (body.toDepartmentId) assetUpdate.departmentId = body.toDepartmentId;
     if (body.toLocationId) assetUpdate.currentLocationId = body.toLocationId;
     if (body.toPerson) assetUpdate.assignedToPersonName = body.toPerson;
