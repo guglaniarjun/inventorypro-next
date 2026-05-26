@@ -13,7 +13,7 @@ interface Asset {
   purchaseDate: string | null; purchaseValue: string | null;
   vendorName: string | null; invoiceNumber: string | null;
   warrantyStartDate: string | null; warrantyEndDate: string | null;
-  amcDetails: string | null; remarks: string | null;
+  amcDetails: string | null; remarks: string | null; assetPhoto: string | null;
   movements: Array<{ id: number; movementType: string; movementDate: string; fromDepartmentName: string | null; toDepartmentName: string | null; toPerson: string | null; remarks: string | null; }>;
 }
 
@@ -77,6 +77,10 @@ export default function AssetDetailPage() {
         <div className="md:col-span-2 space-y-5">
           <div className="bg-white border border-border rounded-xl p-5">
             <h2 className="font-semibold mb-4">Asset Details</h2>
+            {asset.assetPhoto && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={asset.assetPhoto} alt={asset.assetName} className="w-48 h-48 object-cover rounded-xl border border-border shadow-sm mb-4" />
+            )}
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div><p className="text-muted-foreground">Category</p><p className="font-medium">{asset.assetCategory}</p></div>
               <div><p className="text-muted-foreground">Department</p><Link href={`/departments/${asset.departmentId}`} className="font-medium text-blue-600 hover:underline">{asset.departmentName}</Link></div>
