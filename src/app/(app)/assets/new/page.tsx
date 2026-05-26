@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
+import ImagePicker from "@/components/ImagePicker";
 
 interface Dept { id: number; departmentName: string; }
 interface Loc { id: number; locationPath: string; }
@@ -12,6 +13,7 @@ export default function NewAssetPage() {
   const [depts, setDepts] = useState<Dept[]>([]);
   const [locations, setLocations] = useState<Loc[]>([]);
   const [saving, setSaving] = useState(false);
+  const [assetPhoto, setAssetPhoto] = useState("");
   const [form, setForm] = useState({
     assetName: "", assetCode: "", assetCategory: "", departmentId: "", currentLocationId: "",
     assignedToPersonName: "", quantity: "1", purchaseDate: "", purchaseValue: "",
@@ -46,6 +48,7 @@ export default function NewAssetPage() {
         invoiceNumber: form.invoiceNumber || null,
         amcDetails: form.amcDetails || null,
         remarks: form.remarks || null,
+        assetPhoto: assetPhoto || null,
       }),
     });
     setSaving(false);
@@ -96,6 +99,11 @@ export default function NewAssetPage() {
               </select>
             </div>
           </div>
+        </div>
+
+        <div className="bg-white border border-border rounded-xl p-5 space-y-4">
+          <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Photo</h2>
+          <ImagePicker value={assetPhoto} onChange={setAssetPhoto} label="Asset Photo" />
         </div>
 
         <div className="bg-white border border-border rounded-xl p-5 space-y-4">
