@@ -51,8 +51,14 @@ export default function NewAssetPage() {
   const [rows, setRows] = useState<BulkRow[]>([newRow()]);
 
   useEffect(() => {
-    fetch("/api/departments?limit=100").then(r => r.json()).then((d: {data: Dept[]}) => setDepts(d.data));
-    fetch("/api/locations?limit=100").then(r => r.json()).then((d: {data: Loc[]}) => setLocations(d.data));
+    fetch("/api/departments?limit=100")
+      .then(r => r.json())
+      .then((d: unknown) => { const arr = (d as {data?: Dept[]})?.data; if (Array.isArray(arr)) setDepts(arr); })
+      .catch(() => {});
+    fetch("/api/locations?limit=100")
+      .then(r => r.json())
+      .then((d: unknown) => { const arr = (d as {data?: Loc[]})?.data; if (Array.isArray(arr)) setLocations(arr); })
+      .catch(() => {});
   }, []);
 
   const set = useCallback((k: string, v: string) => setForm(f => ({ ...f, [k]: v })), []);
