@@ -71,12 +71,14 @@ export async function POST(req: NextRequest) {
   });
   if (!asset) return NextResponse.json({ error: "Asset not found" }, { status: 404 });
 
+  const qty = body.quantity ?? 1;
+
   const movement = await prisma.assetMovement.create({
     data: {
       tenantId: session.user.tenantId!,
       assetId: body.assetId,
       movementType: body.movementType,
-      quantity: body.quantity ?? 1,
+      quantity: qty,
       fromDepartmentId: body.fromDepartmentId ?? null,
       toDepartmentId: body.toDepartmentId ?? null,
       fromLocationId: body.fromLocationId ?? null,
@@ -92,17 +94,29 @@ export async function POST(req: NextRequest) {
 
   // Update asset state based on movement type
   const assetUpdate: Record<string, unknown> = {};
-  if (body.toDepartmentId) assetUpdate.departmentId = body.toDepartmentId;
-  if (body.toLocationId) assetUpdate.currentLocationId = body.toLocationId;
-  if (body.toPerson) assetUpdate.assignedToPersonName = body.toPerson;
-  if (body.newCondition) assetUpdate.condition = body.newCondition;
-  if (body.newStatus) assetUpdate.status = body.newStatus;
 
-  if (Object.keys(assetUpdate).length > 0) {
-    await prisma.asset.updateMany({
+  if (body.movementType === "Stock Addition") {
+    // Add more units to existing asset
+    await prisma.asset.update({
       where: { id: body.assetId },
-      data: assetUpdate,
+      data: { quantity: { increment: qty } },
     });
+  } else if (body.movementType === "Discard") {
+    // Reduce quantity; mark discarded if all gone
+    const newQty = Math.max(0, asset.quantity - qty);
+    assetUpdate.quantity = newQty;
+    if (newQty <= 0) assetUpdate.status = "Discarded";
+    await prisma.asset.updateMany({ where: { id: body.assetId }, data: assetUpdate });
+  } else {
+    // Standard movement — update department, location, person, condition, status
+    if (body.toDepartmentId) assetUpdate.departmentId = body.toDepartmentId;
+    if (body.toLocationId) assetUpdate.currentLocationId = body.toLocationId;
+    if (body.toPerson) assetUpdate.assignedToPersonName = body.toPerson;
+    if (body.newCondition) assetUpdate.condition = body.newCondition;
+    if (body.newStatus) assetUpdate.status = body.newStatus;
+    if (Object.keys(assetUpdate).length > 0) {
+      await prisma.asset.updateMany({ where: { id: body.assetId }, data: assetUpdate });
+    }
   }
 
   await logActivity({
@@ -110,7 +124,7 @@ export async function POST(req: NextRequest) {
     actionType: "MOVEMENT",
     module: "Assets",
     recordId: movement.id,
-    description: `${body.movementType}: ${asset.assetName}`,
+    description: `${body.movementType}: ${asset.assetName} (qty: ${qty})`,
   });
 
   return NextResponse.json(movement, { status: 201 });
