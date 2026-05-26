@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, MapPin, ArrowLeftRight, TrendingUp, TrendingDown } from "lucide-react";
+import { ChevronLeft, MapPin, ArrowLeftRight, TrendingUp, TrendingDown, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 
@@ -14,7 +14,7 @@ interface Item {
   status: string; isLowStock: boolean; itemPhoto: string | null;
   recentTransactions: Array<{
     id: number; transactionType: string; quantity: number; afterStock: number;
-    transactionDate: string; remarks: string | null;
+    transactionDate: string; remarks: string | null; approvalStatus: string;
     fromDepartmentName: string | null; toDepartmentName: string | null;
   }>;
 }
@@ -37,6 +37,7 @@ export default function ItemDetailPage() {
   const [toText, setToText] = useState("");
   const [depts, setDepts] = useState<Array<{ id: number; departmentName: string }>>([]);
   const [saving, setSaving] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(false);
 
   const load = () => {
     fetch(`/api/inventory/items/${id}`)
@@ -68,13 +69,19 @@ export default function ItemDetailPage() {
         remarks: finalRemarks || undefined,
         fromDepartmentId: isTransfer && fromDeptId ? Number(fromDeptId) : undefined,
         toDepartmentId: isTransfer && toDeptId ? Number(toDeptId) : undefined,
+        requireApproval,
       }),
     });
     setSaving(false);
     if (res.ok) {
-      toast.success("Transaction recorded");
+      const data = await res.json() as { requiresApproval?: boolean };
+      if (data.requiresApproval) {
+        toast.success("Approval request submitted — awaiting admin approval");
+      } else {
+        toast.success("Transaction recorded");
+      }
       setStockOpen(false);
-      setTxRemarks(""); setQuantity(1); setFromDeptId(""); setToDeptId(""); setFromText(""); setToText("");
+      setTxRemarks(""); setQuantity(1); setFromDeptId(""); setToDeptId(""); setFromText(""); setToText(""); setRequireApproval(false);
       load();
     } else {
       const d = await res.json() as { error?: string };
@@ -158,6 +165,7 @@ export default function ItemDetailPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">From/To</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">Qty</th>
                 <th className="px-4 py-3 text-right font-medium text-muted-foreground">Balance</th>
+                <th className="px-4 py-3 text-center font-medium text-muted-foreground">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -167,7 +175,17 @@ export default function ItemDetailPage() {
                   <td className="px-4 py-3"><span className="px-2 py-0.5 bg-secondary rounded-full text-xs font-medium">{tx.transactionType}</span></td>
                   <td className="px-4 py-3 text-muted-foreground text-xs">{tx.toDepartmentName ?? tx.fromDepartmentName ?? tx.remarks?.split("|")[0]?.slice(0, 30) ?? "-"}</td>
                   <td className={`px-4 py-3 text-right font-mono font-semibold ${tx.quantity > 0 ? "text-green-600" : "text-red-600"}`}>{tx.quantity > 0 ? "+" : ""}{tx.quantity}</td>
-                  <td className="px-4 py-3 text-right font-mono text-muted-foreground">{tx.afterStock}</td>
+                  <td className="px-4 py-3 text-right font-mono text-muted-foreground">{tx.approvalStatus === "Pending" ? "—" : tx.afterStock}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                      tx.approvalStatus === "Pending" ? "bg-amber-100 text-amber-700" :
+                      tx.approvalStatus === "Approved" ? "bg-green-100 text-green-700" :
+                      tx.approvalStatus === "Rejected" ? "bg-red-100 text-red-700" :
+                      "bg-secondary text-secondary-foreground"
+                    }`}>
+                      {tx.approvalStatus === "Not Required" ? "Done" : tx.approvalStatus}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -246,9 +264,24 @@ export default function ItemDetailPage() {
               </div>
             </div>
 
+            {/* Approval toggle */}
+            <label className="flex items-center gap-3 p-3 border border-input rounded-lg cursor-pointer hover:bg-muted/30 transition-colors">
+              <input type="checkbox" checked={requireApproval} onChange={e => setRequireApproval(e.target.checked)} className="w-4 h-4 rounded" />
+              <div>
+                <div className="flex items-center gap-1.5 text-sm font-medium">
+                  <ShieldCheck className="w-4 h-4 text-amber-600" />
+                  Request Admin Approval
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">Transaction will be submitted for approval — stock won&apos;t change until approved</p>
+              </div>
+            </label>
+
             <div className="flex gap-3 justify-end">
               <button onClick={() => setStockOpen(false)} className="px-4 py-2 text-sm border border-input rounded-lg hover:bg-muted">Cancel</button>
-              <button onClick={handleStockAction} disabled={saving || quantity < 1} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-60">{saving ? "Saving..." : "Confirm"}</button>
+              <button onClick={handleStockAction} disabled={saving || quantity < 1}
+                className={`px-4 py-2 text-sm text-white rounded-lg disabled:opacity-60 ${requireApproval ? "bg-amber-500 hover:bg-amber-600" : "bg-blue-600 hover:bg-blue-500"}`}>
+                {saving ? "Saving..." : requireApproval ? "Submit for Approval" : "Confirm"}
+              </button>
             </div>
           </div>
         </div>
