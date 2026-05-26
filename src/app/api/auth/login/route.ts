@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import { getIronSession } from "iron-session";
+import { getSession } from "@/lib/session";
 import prisma from "@/lib/prisma";
-import { sessionOptions, AppSessionData } from "@/lib/session";
 import { logActivity } from "@/lib/activity";
 
 export async function POST(req: NextRequest) {
@@ -29,17 +28,7 @@ export async function POST(req: NextRequest) {
       data: { lastLoginAt: new Date() },
     });
 
-    const res = NextResponse.json({
-      id: user.id,
-      tenantId: user.tenantId,
-      username: user.username,
-      fullName: user.fullName,
-      email: user.email,
-      role: user.role,
-      departmentId: user.departmentId,
-    });
-
-    const session = await getIronSession<AppSessionData>(req, res, sessionOptions);
+    const session = await getSession();
     session.user = {
       id: user.id,
       tenantId: user.tenantId,
@@ -58,7 +47,15 @@ export async function POST(req: NextRequest) {
       description: `User ${user.username} logged in`,
     });
 
-    return res;
+    return NextResponse.json({
+      id: user.id,
+      tenantId: user.tenantId,
+      username: user.username,
+      fullName: user.fullName,
+      email: user.email,
+      role: user.role,
+      departmentId: user.departmentId,
+    });
   } catch (err) {
     console.error("Login error:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

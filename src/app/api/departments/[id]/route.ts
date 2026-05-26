@@ -1,14 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIronSession } from "iron-session";
-import { sessionOptions, AppSessionData } from "@/lib/session";
+import { getSession } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { logActivity } from "@/lib/activity";
 
 type Params = { params: Promise<{ id: string }> };
 
 export async function GET(req: NextRequest, { params }: Params) {
-  const res = new NextResponse();
-  const session = await getIronSession<AppSessionData>(req, res, sessionOptions);
+  const session = await getSession();
   if (!session.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
@@ -46,8 +44,7 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
-  const res = new NextResponse();
-  const session = await getIronSession<AppSessionData>(req, res, sessionOptions);
+  const session = await getSession();
   if (!session.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
@@ -82,8 +79,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
-  const res = new NextResponse();
-  const session = await getIronSession<AppSessionData>(req, res, sessionOptions);
+  const session = await getSession();
   if (!session.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;

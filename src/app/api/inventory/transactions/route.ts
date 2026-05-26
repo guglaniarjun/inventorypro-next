@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getIronSession } from "iron-session";
-import { sessionOptions, AppSessionData } from "@/lib/session";
+import { getSession } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { logActivity } from "@/lib/activity";
 
@@ -8,8 +7,7 @@ const STOCK_IN_TYPES = ["Purchase/Stock In", "Return", "Transfer"];
 const STOCK_OUT_TYPES = ["Usage/Stock Out", "Issue to Staff", "Damage", "Discard/Scrap", "Transfer"];
 
 export async function GET(req: NextRequest) {
-  const res = new NextResponse();
-  const session = await getIronSession<AppSessionData>(req, res, sessionOptions);
+  const session = await getSession();
   if (!session.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
@@ -59,8 +57,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const res = new NextResponse();
-  const session = await getIronSession<AppSessionData>(req, res, sessionOptions);
+  const session = await getSession();
   if (!session.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await req.json() as {
