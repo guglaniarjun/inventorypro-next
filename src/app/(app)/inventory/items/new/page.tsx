@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { toast } from "sonner";
+import ImagePicker from "@/components/ImagePicker";
 
 interface Dept { id: number; departmentName: string; }
 interface Loc { id: number; campusName: string; buildingName: string | null; roomName: string | null; locationPath: string; }
@@ -12,6 +13,7 @@ export default function NewItemPage() {
   const [depts, setDepts] = useState<Dept[]>([]);
   const [locations, setLocations] = useState<Loc[]>([]);
   const [saving, setSaving] = useState(false);
+  const [itemPhoto, setItemPhoto] = useState("");
   const [form, setForm] = useState({
     itemName: "", itemCode: "", category: "", itemType: "Consumable", description: "",
     usedFor: "", unit: "Nos", openingStock: "0", minimumStockLevel: "0", reorderLevel: "0",
@@ -40,6 +42,7 @@ export default function NewItemPage() {
         locationId: form.locationId ? parseInt(form.locationId) : null,
         rackNo: form.rackNo || null, shelfNo: form.shelfNo || null,
         description: form.description || null, usedFor: form.usedFor || null, remarks: form.remarks || null,
+        itemPhoto: itemPhoto || null,
       }),
     });
     setSaving(false);
@@ -126,6 +129,11 @@ export default function NewItemPage() {
             <div><label className="block text-sm font-medium mb-1">Rack No</label><input value={form.rackNo} onChange={e => set("rackNo", e.target.value)} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
             <div><label className="block text-sm font-medium mb-1">Shelf No</label><input value={form.shelfNo} onChange={e => set("shelfNo", e.target.value)} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
           </div>
+        </div>
+
+        <div className="bg-white border border-border rounded-xl p-5 space-y-4">
+          <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Photo</h2>
+          <ImagePicker value={itemPhoto} onChange={setItemPhoto} label="Item Photo" />
         </div>
 
         <div className="bg-white border border-border rounded-xl p-5 space-y-4">
