@@ -66,17 +66,19 @@ export default function NewItemPage() {
         <div className="bg-white border border-border rounded-xl p-5 space-y-4">
           <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Basic Info</h2>
           <div className="grid grid-cols-2 gap-4">
-            {[
-              { label: "Item Name *", key: "itemName", required: true, colSpan: true },
-              { label: "Item Code", key: "itemCode", required: false },
-              { label: "Category *", key: "category", required: true },
-            ].map(({ label, key, required, colSpan }) => (
-              <div key={key} className={colSpan ? "col-span-2" : ""}>
-                <label className="block text-sm font-medium mb-1">{label}</label>
-                <input value={form[key as keyof typeof form]} onChange={e => set(key, e.target.value)} required={required}
-                  className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
-              </div>
-            ))}
+            <div className="col-span-2">
+              <label className="block text-sm font-medium mb-1">Item Name *</label>
+              <input value={form.itemName} onChange={e => set("itemName", e.target.value)} required className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Item Code</label>
+              <input disabled placeholder="Auto-generated" className="w-full border border-input rounded-lg px-3 py-2 text-sm bg-muted/50 text-muted-foreground cursor-not-allowed" />
+              <p className="text-xs text-muted-foreground mt-1">Assigned automatically on save</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Category *</label>
+              <input value={form.category} onChange={e => set("category", e.target.value)} required className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+            </div>
             <div>
               <label className="block text-sm font-medium mb-1">Item Type</label>
               <select value={form.itemType} onChange={e => set("itemType", e.target.value)} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
