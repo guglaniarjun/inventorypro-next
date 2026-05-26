@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { Plus, Search, List, MapPin } from "lucide-react";
+import { Plus, Search, List, MapPin, Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 interface Asset {
   id: number; assetName: string; assetCode: string; assetCategory: string;
@@ -32,8 +33,10 @@ export default function AssetsPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [category, setCategory] = useState("");
   const [view, setView] = useState<"list" | "location">("list");
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [confirmDel, setConfirmDel] = useState<Asset | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  // Location view state
   const [locationData, setLocationData] = useState<LocationGroup[]>([]);
   const [locationLoading, setLocationLoading] = useState(false);
   const [locCategory, setLocCategory] = useState("");
@@ -42,6 +45,9 @@ export default function AssetsPage() {
     fetch("/api/assets/categories")
       .then(r => r.json())
       .then((c: unknown) => { if (Array.isArray(c)) setCategories(c as string[]); })
+      .catch(() => {});
+    fetch("/api/auth/me").then(r => r.json())
+      .then((u: { role?: string }) => setIsAdmin(["admin", "tenant_super_admin", "platform_super_admin"].includes(u?.role ?? "")))
       .catch(() => {});
   }, []);
 
@@ -74,12 +80,22 @@ export default function AssetsPage() {
     if (view === "location") loadLocationView();
   }, [view, loadLocationView]);
 
+  async function handleDelete() {
+    if (!confirmDel) return;
+    setDeleting(true);
+    const res = await fetch(`/api/assets/${confirmDel.id}`, { method: "DELETE" });
+    setDeleting(false);
+    if (res.ok) { toast.success("Asset discarded"); setConfirmDel(null); load(); }
+    else { const d = await res.json() as { error?: string }; toast.error(d.error ?? "Failed"); }
+  }
+
+  const colSpan = isAdmin ? 8 : 7;
+
   return (
     <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">Assets</h1><p className="text-sm text-muted-foreground">{total} assets</p></div>
         <div className="flex items-center gap-3">
-          {/* View toggle */}
           <div className="flex border border-input rounded-lg overflow-hidden text-sm">
             <button onClick={() => setView("list")} className={`flex items-center gap-1.5 px-3 py-1.5 transition-colors ${view === "list" ? "bg-blue-600 text-white" : "hover:bg-muted"}`}>
               <List className="w-3.5 h-3.5" /> List
@@ -88,9 +104,11 @@ export default function AssetsPage() {
               <MapPin className="w-3.5 h-3.5" /> By Location
             </button>
           </div>
-          <Link href="/assets/new" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500">
-            <Plus className="w-4 h-4" /> Add Asset
-          </Link>
+          {isAdmin && (
+            <Link href="/assets/new" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500">
+              <Plus className="w-4 h-4" /> Add Asset
+            </Link>
+          )}
         </div>
       </div>
 
@@ -100,7 +118,8 @@ export default function AssetsPage() {
           <div className="flex flex-wrap gap-3">
             <div className="relative flex-1 min-w-48">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets..." className="w-full pl-9 pr-3 py-2 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search assets..."
+                className="w-full pl-9 pr-3 py-2 border border-input rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-ring" />
             </div>
             <select value={category} onChange={e => setCategory(e.target.value)} className="border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
               <option value="">All Categories</option>
@@ -128,13 +147,14 @@ export default function AssetsPage() {
                     <th className="px-4 py-3 text-left font-medium text-muted-foreground">Assigned To</th>
                     <th className="px-4 py-3 text-center font-medium text-muted-foreground">Condition</th>
                     <th className="px-4 py-3 text-center font-medium text-muted-foreground">Status</th>
+                    {isAdmin && <th className="px-4 py-3 text-center font-medium text-muted-foreground w-20">Actions</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {loading
-                    ? Array.from({ length: 6 }).map((_, i) => <tr key={i}><td colSpan={7} className="px-4 py-3"><div className="h-4 bg-muted animate-pulse rounded" /></td></tr>)
+                    ? Array.from({ length: 6 }).map((_, i) => <tr key={i}><td colSpan={colSpan} className="px-4 py-3"><div className="h-4 bg-muted animate-pulse rounded" /></td></tr>)
                     : assets.map(a => (
-                        <tr key={a.id} className="hover:bg-muted/30 transition-colors">
+                        <tr key={a.id} className="hover:bg-muted/30 transition-colors group">
                           <td className="px-4 py-3">
                             <Link href={`/assets/${a.id}`} className="hover:text-blue-600">
                               <p className="font-medium">{a.assetName}</p>
@@ -151,10 +171,24 @@ export default function AssetsPage() {
                           <td className="px-4 py-3 text-center">
                             <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-secondary text-secondary-foreground">{a.status}</span>
                           </td>
+                          {isAdmin && (
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <Link href={`/assets/${a.id}`} title="Edit"
+                                  className="p-1.5 rounded-md text-muted-foreground hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                                  <Pencil className="w-3.5 h-3.5" />
+                                </Link>
+                                <button onClick={() => setConfirmDel(a)} title="Discard"
+                                  className="p-1.5 rounded-md text-muted-foreground hover:text-red-600 hover:bg-red-50 transition-colors">
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))
                   }
-                  {!loading && assets.length === 0 && <tr><td colSpan={7} className="text-center text-muted-foreground py-12">No assets found</td></tr>}
+                  {!loading && assets.length === 0 && <tr><td colSpan={colSpan} className="text-center text-muted-foreground py-12">No assets found</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -229,6 +263,19 @@ export default function AssetsPage() {
             </div>
           )}
         </>
+      )}
+
+      {confirmDel && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-sm space-y-4">
+            <h2 className="text-lg font-semibold">Discard Asset?</h2>
+            <p className="text-sm text-muted-foreground">Mark <strong>{confirmDel.assetName}</strong> as Discarded? You can still find it in the list with a Discarded status.</p>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirmDel(null)} className="px-4 py-2 text-sm border border-input rounded-lg hover:bg-muted">Cancel</button>
+              <button onClick={handleDelete} disabled={deleting} className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-500 disabled:opacity-60">{deleting ? "Discarding..." : "Discard"}</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
