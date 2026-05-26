@@ -39,7 +39,10 @@ export default function AssetsPage() {
   const [locCategory, setLocCategory] = useState("");
 
   useEffect(() => {
-    fetch("/api/assets/categories").then(r => r.json()).then((c: string[]) => setCategories(c));
+    fetch("/api/assets/categories")
+      .then(r => r.json())
+      .then((c: unknown) => { if (Array.isArray(c)) setCategories(c as string[]); })
+      .catch(() => {});
   }, []);
 
   const load = useCallback(() => {
