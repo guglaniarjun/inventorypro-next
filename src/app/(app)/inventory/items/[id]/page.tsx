@@ -11,7 +11,7 @@ interface Item {
   description: string | null; usedFor: string | null; unit: string;
   currentStock: number; openingStock: number; minimumStockLevel: number; reorderLevel: number;
   departmentName: string; locationPath: string | null; rackNo: string | null; shelfNo: string | null;
-  status: string; isLowStock: boolean;
+  status: string; isLowStock: boolean; itemPhoto: string | null;
   recentTransactions: Array<{
     id: number; transactionType: string; quantity: number; afterStock: number;
     transactionDate: string; remarks: string | null;
@@ -104,6 +104,10 @@ export default function ItemDetailPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2 bg-white border border-border rounded-xl p-5 space-y-4">
           <h2 className="font-semibold">Information</h2>
+          {item.itemPhoto && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={item.itemPhoto} alt={item.itemName} className="w-48 h-48 object-cover rounded-xl border border-border shadow-sm" />
+          )}
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div><p className="text-muted-foreground">Category</p><p className="font-medium">{item.category}</p></div>
             <div><p className="text-muted-foreground">Type</p><p className="font-medium">{item.itemType}</p></div>
