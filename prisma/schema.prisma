@@ -137,6 +137,10 @@ model InventoryItem {
   location     Location?    @relation(fields: [locationId], references: [id])
   transactions StockTransaction[]
 
+  @@index([tenantId, status])
+  @@index([tenantId, departmentId, status])
+  @@index([tenantId, category])
+  @@index([itemName])
   @@map("inventory_items")
 }
 
@@ -205,6 +209,9 @@ model Asset {
   currentLocation Location?     @relation(fields: [currentLocationId], references: [id])
   movements       AssetMovement[]
 
+  @@index([tenantId, status])
+  @@index([tenantId, departmentId])
+  @@index([tenantId, assetCategory])
   @@map("assets")
 }
 
@@ -321,5 +328,7 @@ model ActivityLog {
 
   tenant Tenant? @relation(fields: [tenantId], references: [id])
 
+  @@index([tenantId, timestamp(sort: Desc)])
+  @@index([userId])
   @@map("activity_logs")
 }
