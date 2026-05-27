@@ -24,8 +24,6 @@ export default function InventoryItemsPage() {
   const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
-    fetch("/api/inventory/items/categories")
-      .then(r => r.json()).then((c: unknown) => { if (Array.isArray(c)) setCategories(c as string[]); }).catch(() => {});
     fetch("/api/auth/me").then(r => r.json())
       .then((u: { role?: string }) => {
         const role = u?.role ?? "";
@@ -44,7 +42,12 @@ export default function InventoryItemsPage() {
     if (filters.departmentId) p.set("departmentId", filters.departmentId);
     fetch(`/api/inventory/items?${p}`)
       .then(r => r.json())
-      .then((d: { data: Item[]; total: number }) => { setItems(d.data); setTotal(d.total); setLoading(false); })
+      .then((d: { data: Item[]; total: number; categories?: string[] }) => {
+        setItems(d.data);
+        setTotal(d.total);
+        if (d.categories?.length) setCategories(d.categories);
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   }, [filters]);
 
