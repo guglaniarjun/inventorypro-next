@@ -34,33 +34,57 @@ export async function GET(req: NextRequest) {
     ...(itemType ? { itemType } : {}),
   };
 
-  const [items, total] = await Promise.all([
+  const tenantId = session.user.tenantId ?? undefined;
+
+  const [items, total, categoryRows] = await Promise.all([
     prisma.inventoryItem.findMany({
       where,
       skip,
       take: limit,
       orderBy: { updatedAt: "desc" },
-      include: {
+      select: {
+        id: true,
+        itemName: true,
+        itemCode: true,
+        category: true,
+        itemType: true,
+        currentStock: true,
+        minimumStockLevel: true,
+        unit: true,
+        status: true,
         department: { select: { departmentName: true } },
-        location: { select: { campusName: true, buildingName: true, roomName: true } },
       },
     }),
     prisma.inventoryItem.count({ where }),
+    prisma.inventoryItem.findMany({
+      where: { ...(tenantId ? { tenantId } : {}), status: { not: "Inactive" } },
+      select: { category: true },
+      distinct: ["category"],
+      orderBy: { category: "asc" },
+    }),
   ]);
 
-  return NextResponse.json({
+  const res = NextResponse.json({
     data: items.map((item) => ({
-      ...item,
+      id: item.id,
+      itemName: item.itemName,
+      itemCode: item.itemCode,
+      category: item.category,
+      itemType: item.itemType,
+      currentStock: item.currentStock,
+      minimumStockLevel: item.minimumStockLevel,
+      unit: item.unit,
+      status: item.status,
       departmentName: item.department.departmentName,
-      locationPath: item.location
-        ? [item.location.campusName, item.location.buildingName, item.location.roomName].filter(Boolean).join(" > ")
-        : null,
       isLowStock: item.currentStock <= item.minimumStockLevel,
     })),
     total,
     page,
     limit,
+    categories: categoryRows.map((c) => c.category),
   });
+  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
+  return res;
 }
 
 export async function POST(req: NextRequest) {
