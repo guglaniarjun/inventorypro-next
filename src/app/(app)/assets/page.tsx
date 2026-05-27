@@ -34,6 +34,7 @@ export default function AssetsPage() {
   const [category, setCategory] = useState("");
   const [view, setView] = useState<"list" | "location">("list");
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canAdd, setCanAdd] = useState(false);
   const [confirmDel, setConfirmDel] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -47,7 +48,11 @@ export default function AssetsPage() {
       .then((c: unknown) => { if (Array.isArray(c)) setCategories(c as string[]); })
       .catch(() => {});
     fetch("/api/auth/me").then(r => r.json())
-      .then((u: { role?: string }) => setIsAdmin(["admin", "tenant_super_admin", "platform_super_admin"].includes(u?.role ?? "")))
+      .then((u: { role?: string }) => {
+        const role = u?.role ?? "";
+        setIsAdmin(["admin", "tenant_super_admin", "platform_super_admin"].includes(role));
+        setCanAdd(role !== "auditor" && role !== "");
+      })
       .catch(() => {});
   }, []);
 
@@ -104,7 +109,7 @@ export default function AssetsPage() {
               <MapPin className="w-3.5 h-3.5" /> By Location
             </button>
           </div>
-          {isAdmin && (
+          {canAdd && (
             <Link href="/assets/new" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500">
               <Plus className="w-4 h-4" /> Add Asset
             </Link>
