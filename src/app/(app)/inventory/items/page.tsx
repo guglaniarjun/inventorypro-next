@@ -19,6 +19,7 @@ export default function InventoryItemsPage() {
   const [filters, setFilters] = useState<Filters>({ search: "", category: "", status: "", departmentId: "" });
   const [categories, setCategories] = useState<string[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canAdd, setCanAdd] = useState(false);
   const [confirmDel, setConfirmDel] = useState<Item | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -26,7 +27,11 @@ export default function InventoryItemsPage() {
     fetch("/api/inventory/items/categories")
       .then(r => r.json()).then((c: unknown) => { if (Array.isArray(c)) setCategories(c as string[]); }).catch(() => {});
     fetch("/api/auth/me").then(r => r.json())
-      .then((u: { role?: string }) => setIsAdmin(["admin", "tenant_super_admin", "platform_super_admin"].includes(u?.role ?? "")))
+      .then((u: { role?: string }) => {
+        const role = u?.role ?? "";
+        setIsAdmin(["admin", "tenant_super_admin", "platform_super_admin"].includes(role));
+        setCanAdd(role !== "auditor" && role !== "");
+      })
       .catch(() => {});
   }, []);
 
@@ -65,7 +70,7 @@ export default function InventoryItemsPage() {
           <h1 className="text-2xl font-bold">Inventory Items</h1>
           <p className="text-sm text-muted-foreground">{total} items</p>
         </div>
-        {isAdmin && (
+        {canAdd && (
           <Link href="/inventory/items/new" className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-500">
             <Plus className="w-4 h-4" /> Add Item
           </Link>
