@@ -14,6 +14,7 @@ interface Audit {
 
 interface ExistingRow {
   id: number;
+  referenceType: string | null;
   referenceId: number;
   referenceCode: string;
   conditionFound: string | null;
@@ -32,6 +33,7 @@ interface EditRow {
 }
 
 interface ItemGroup {
+  kind: "inventory" | "asset";
   refId: number;
   name: string;
   code: string;
@@ -101,18 +103,24 @@ export default function AuditDetailPage() {
       const wantInventory = type === "inventory" || type === "full";
       const wantAssets = type === "assets" || type === "full";
 
-      // Group existing audit rows by referenceCode (unique across inventory & assets).
-      const existingByCode = new Map<string, ExistingRow[]>();
+      // Group existing audit rows by typed identity (referenceType:referenceId) so
+      // inventory and asset ids that collide are never matched to the wrong item.
+      // Fall back to code for legacy rows saved before referenceType existed.
+      const existingByKey = new Map<string, ExistingRow[]>();
       for (const row of (auditData.items ?? [])) {
-        const arr = existingByCode.get(row.referenceCode) ?? [];
+        const key = row.referenceType
+          ? `${row.referenceType}:${row.referenceId}`
+          : `code:${row.referenceCode}`;
+        const arr = existingByKey.get(key) ?? [];
         arr.push(row);
-        existingByCode.set(row.referenceCode, arr);
+        existingByKey.set(key, arr);
       }
 
       const buildGroup = (
-        refId: number, name: string, code: string, expected: number, currentCondition: string,
+        kind: "inventory" | "asset", refId: number, name: string, code: string,
+        expected: number, currentCondition: string,
       ): ItemGroup => {
-        const existing = existingByCode.get(code);
+        const existing = existingByKey.get(`${kind}:${refId}`) ?? existingByKey.get(`code:${code}`);
         const rows: EditRow[] = existing && existing.length > 0
           ? existing.map(e => ({
               key: newKey(),
@@ -128,7 +136,7 @@ export default function AuditDetailPage() {
               damageStatus: "None",
               remarks: "",
             }];
-        return { refId, name, code, expected, currentCondition, rows };
+        return { kind, refId, name, code, expected, currentCondition, rows };
       };
 
       const newSections: Section[] = [];
@@ -137,7 +145,7 @@ export default function AuditDetailPage() {
         const res = await fetch(`/api/inventory/items?departmentId=${auditData.departmentId}&limit=500`);
         const data = await res.json() as { data: Array<{ id: number; itemName: string; itemCode: string; currentStock: number; status?: string }> };
         const groups = (data.data ?? []).map(d =>
-          buildGroup(d.id, d.itemName, d.itemCode, d.currentStock, d.status ?? "Good / Working"));
+          buildGroup("inventory", d.id, d.itemName, d.itemCode, d.currentStock, d.status ?? "Good / Working"));
         newSections.push({ kind: "inventory", title: "Inventory Items", groups });
       }
 
@@ -145,7 +153,7 @@ export default function AuditDetailPage() {
         const res = await fetch(`/api/assets?departmentId=${auditData.departmentId}&limit=500`);
         const data = await res.json() as { data: Array<{ id: number; assetName: string; assetCode: string; quantity: number; condition?: string }> };
         const groups = (data.data ?? []).map(d =>
-          buildGroup(d.id, d.assetName, d.assetCode, d.quantity ?? 1, d.condition ?? "Good"));
+          buildGroup("asset", d.id, d.assetName, d.assetCode, d.quantity ?? 1, d.condition ?? "Good"));
         newSections.push({ kind: "assets", title: "Assets", groups });
       }
 
@@ -191,6 +199,7 @@ export default function AuditDetailPage() {
         for (const r of group.rows) {
           if (r.physicalQty === "") continue; // only persist filled-in counts
           rows.push({
+            referenceType: group.kind,
             referenceId: group.refId,
             referenceName: group.name,
             referenceCode: group.code,
@@ -505,7 +514,8 @@ export default function AuditDetailPage() {
           </span>
           <button
             onClick={saveAudit}
-            disabled={saving}
+            disabled={saving || totalGroups === 0}
+            title={totalGroups === 0 ? "No items loaded for this department" : undefined}
             className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-60 shadow-sm"
           >
             <Save className="w-4 h-4" />
