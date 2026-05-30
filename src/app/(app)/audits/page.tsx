@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
@@ -8,6 +9,7 @@ import { formatDate } from "@/lib/utils";
 interface Audit { id: number; auditTitle: string; auditType: string; departmentName: string; auditDate: string; status: string; totalItems: number; shortageCount: number; }
 
 export default function AuditsPage() {
+  const router = useRouter();
   const [audits, setAudits] = useState<Audit[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -20,7 +22,10 @@ export default function AuditsPage() {
     fetch("/api/audits?limit=100").then(r => r.json()).then((d: { data: Audit[] }) => { setAudits(d.data); setLoading(false); }).catch(() => setLoading(false));
   };
 
-  useEffect(() => { load(); fetch("/api/departments?limit=100").then(r => r.json()).then((d: { data: typeof depts }) => setDepts(d.data)); }, []);
+  useEffect(() => {
+    load();
+    fetch("/api/departments?limit=100").then(r => r.json()).then((d: { data: typeof depts }) => setDepts(d.data));
+  }, []);
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -31,8 +36,14 @@ export default function AuditsPage() {
       body: JSON.stringify({ ...form, departmentId: parseInt(form.departmentId) }),
     });
     setSaving(false);
-    if (res.ok) { toast.success("Audit created"); setShowAdd(false); setForm({ auditTitle: "", auditType: "inventory", departmentId: "", auditDate: new Date().toISOString().slice(0, 10), remarks: "" }); load(); }
-    else { const d = await res.json() as { error?: string }; toast.error(d.error ?? "Failed"); }
+    if (res.ok) {
+      const created = await res.json() as { id: number };
+      toast.success("Audit created — opening audit sheet...");
+      router.push(`/audits/${created.id}`);
+    } else {
+      const d = await res.json() as { error?: string };
+      toast.error(d.error ?? "Failed");
+    }
   }
 
   const statusColor = (s: string) => ({ Draft: "bg-gray-100 text-gray-700", "In Progress": "bg-blue-100 text-blue-700", Completed: "bg-green-100 text-green-700" }[s] ?? "bg-secondary text-secondary-foreground");
@@ -70,7 +81,10 @@ export default function AuditsPage() {
       {showAdd && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <form onSubmit={handleAdd} className="bg-white rounded-xl p-6 w-full max-w-md space-y-4">
-            <h2 className="text-lg font-semibold">New Audit Session</h2>
+            <div>
+              <h2 className="text-lg font-semibold">New Audit Session</h2>
+              <p className="text-xs text-muted-foreground mt-1">After creating, you&apos;ll be taken directly to the audit sheet to record item conditions.</p>
+            </div>
             <div><label className="block text-sm font-medium mb-1">Audit Title *</label><input value={form.auditTitle} onChange={e => setForm(f => ({ ...f, auditTitle: e.target.value }))} required className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
             <div><label className="block text-sm font-medium mb-1">Audit Type</label>
               <select value={form.auditType} onChange={e => setForm(f => ({ ...f, auditType: e.target.value }))} className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring">
@@ -86,7 +100,7 @@ export default function AuditsPage() {
             <div><label className="block text-sm font-medium mb-1">Audit Date *</label><input type="date" value={form.auditDate} onChange={e => setForm(f => ({ ...f, auditDate: e.target.value }))} required className="w-full border border-input rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring" /></div>
             <div className="flex gap-3 justify-end pt-2">
               <button type="button" onClick={() => setShowAdd(false)} className="px-4 py-2 text-sm border border-input rounded-lg hover:bg-muted">Cancel</button>
-              <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-60">{saving ? "Saving..." : "Create"}</button>
+              <button type="submit" disabled={saving} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-60">{saving ? "Creating..." : "Create & Open"}</button>
             </div>
           </form>
         </div>
