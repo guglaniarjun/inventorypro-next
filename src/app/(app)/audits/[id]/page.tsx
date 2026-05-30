@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { ChevronLeft, Plus, Trash2, FileText, CheckCircle, PlayCircle, Package } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, FileText, CheckCircle, PlayCircle, Package, Boxes, Save } from "lucide-react";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 
@@ -12,13 +12,10 @@ interface Audit {
   remarks: string | null;
 }
 
-interface DeptItem {
-  id: number; itemName: string; itemCode: string; currentStock: number;
-}
-
-interface ConditionRow {
+interface ExistingRow {
   id: number;
   referenceId: number;
+  referenceCode: string;
   conditionFound: string | null;
   expectedQuantity: number;
   physicalQuantity: number;
@@ -26,19 +23,27 @@ interface ConditionRow {
   remarks: string | null;
 }
 
-interface NewRow {
-  tempId: string;
+interface EditRow {
+  key: string;
   conditionFound: string;
   physicalQty: string;
   damageStatus: string;
   remarks: string;
-  saving: boolean;
 }
 
 interface ItemGroup {
-  item: DeptItem;
-  rows: ConditionRow[];
-  newRows: NewRow[];
+  refId: number;
+  name: string;
+  code: string;
+  expected: number;
+  currentCondition: string;
+  rows: EditRow[];
+}
+
+interface Section {
+  kind: "inventory" | "assets";
+  title: string;
+  groups: ItemGroup[];
 }
 
 const CONDITIONS = [
@@ -60,52 +65,91 @@ const conditionBadge = (c: string | null) => {
   return "bg-amber-100 text-amber-700";
 };
 
+function mapToCondition(raw: string | null | undefined): string {
+  if (!raw) return "Good / Working";
+  const v = raw.toLowerCase();
+  if (v.includes("good") || v.includes("work") || v.includes("active") || v.includes("use")) return "Good / Working";
+  if (v.includes("missing")) return "Missing";
+  if (v.includes("repair")) return "Under Repair";
+  if (v.includes("sever") || v.includes("beyond")) return "Severely Damaged";
+  if (v.includes("damage") || v.includes("poor") || v.includes("broken")) return "Physically Damaged";
+  return "Other";
+}
+
+let keyCounter = 0;
+const newKey = () => `r${++keyCounter}-${Date.now()}`;
+
 export default function AuditDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [audit, setAudit] = useState<Audit | null>(null);
-  const [groups, setGroups] = useState<ItemGroup[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [finalRemarks, setFinalRemarks] = useState("");
   const [savingRemarks, setSavingRemarks] = useState(false);
-  const [deleting, setDeleting] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const auditRes = await fetch(`/api/audits/${id}`);
       if (!auditRes.ok) { setLoading(false); return; }
-      const auditData = await auditRes.json() as Audit & { items: ConditionRow[] };
+      const auditData = await auditRes.json() as Audit & { items: ExistingRow[] };
       setAudit(auditData);
       setFinalRemarks(auditData.remarks ?? "");
 
-      const isAsset = auditData.auditType?.toLowerCase().includes("asset");
-      const deptRes = await fetch(
-        isAsset
-          ? `/api/assets?departmentId=${auditData.departmentId}&limit=300`
-          : `/api/inventory/items?departmentId=${auditData.departmentId}&limit=300`
-      );
-      const deptData = await deptRes.json() as { data: Array<{ id: number; itemName?: string; assetName?: string; itemCode?: string; assetCode?: string; currentStock?: number; quantity?: number }> };
-      const deptItems: DeptItem[] = (deptData.data ?? []).map(d => ({
-        id: d.id,
-        itemName: d.itemName ?? d.assetName ?? "",
-        itemCode: d.itemCode ?? d.assetCode ?? "",
-        currentStock: d.currentStock ?? d.quantity ?? 1,
-      }));
+      const type = (auditData.auditType ?? "inventory").toLowerCase();
+      const wantInventory = type === "inventory" || type === "full";
+      const wantAssets = type === "assets" || type === "full";
 
-      const rowsByRef = new Map<number, ConditionRow[]>();
+      // Group existing audit rows by referenceCode (unique across inventory & assets).
+      const existingByCode = new Map<string, ExistingRow[]>();
       for (const row of (auditData.items ?? [])) {
-        const arr = rowsByRef.get(row.referenceId) ?? [];
+        const arr = existingByCode.get(row.referenceCode) ?? [];
         arr.push(row);
-        rowsByRef.set(row.referenceId, arr);
+        existingByCode.set(row.referenceCode, arr);
       }
 
-      const grouped: ItemGroup[] = deptItems.map(item => ({
-        item,
-        rows: rowsByRef.get(item.id) ?? [],
-        newRows: [],
-      }));
+      const buildGroup = (
+        refId: number, name: string, code: string, expected: number, currentCondition: string,
+      ): ItemGroup => {
+        const existing = existingByCode.get(code);
+        const rows: EditRow[] = existing && existing.length > 0
+          ? existing.map(e => ({
+              key: newKey(),
+              conditionFound: e.conditionFound ?? "Good / Working",
+              physicalQty: String(e.physicalQuantity),
+              damageStatus: e.damageStatus ?? "None",
+              remarks: e.remarks ?? "",
+            }))
+          : [{
+              key: newKey(),
+              conditionFound: mapToCondition(currentCondition),
+              physicalQty: "",
+              damageStatus: "None",
+              remarks: "",
+            }];
+        return { refId, name, code, expected, currentCondition, rows };
+      };
 
-      setGroups(grouped);
+      const newSections: Section[] = [];
+
+      if (wantInventory) {
+        const res = await fetch(`/api/inventory/items?departmentId=${auditData.departmentId}&limit=500`);
+        const data = await res.json() as { data: Array<{ id: number; itemName: string; itemCode: string; currentStock: number; status?: string }> };
+        const groups = (data.data ?? []).map(d =>
+          buildGroup(d.id, d.itemName, d.itemCode, d.currentStock, d.status ?? "Good / Working"));
+        newSections.push({ kind: "inventory", title: "Inventory Items", groups });
+      }
+
+      if (wantAssets) {
+        const res = await fetch(`/api/assets?departmentId=${auditData.departmentId}&limit=500`);
+        const data = await res.json() as { data: Array<{ id: number; assetName: string; assetCode: string; quantity: number; condition?: string }> };
+        const groups = (data.data ?? []).map(d =>
+          buildGroup(d.id, d.assetName, d.assetCode, d.quantity ?? 1, d.condition ?? "Good"));
+        newSections.push({ kind: "assets", title: "Assets", groups });
+      }
+
+      setSections(newSections);
     } finally {
       setLoading(false);
     }
@@ -113,105 +157,64 @@ export default function AuditDetailPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function addNewRow(gIdx: number) {
-    setGroups(g => {
-      const next = [...g];
-      next[gIdx] = {
-        ...next[gIdx],
-        newRows: [...next[gIdx].newRows, {
-          tempId: `${Date.now()}-${Math.random()}`,
-          conditionFound: "Good / Working",
-          physicalQty: "",
-          damageStatus: "None",
-          remarks: "",
-          saving: false,
-        }],
-      };
-      return next;
-    });
+  function mutateGroup(sIdx: number, gIdx: number, fn: (g: ItemGroup) => ItemGroup) {
+    setSections(secs => secs.map((s, si) =>
+      si !== sIdx ? s : { ...s, groups: s.groups.map((g, gi) => gi !== gIdx ? g : fn(g)) }));
   }
 
-  function updateNewRow(gIdx: number, tempId: string, field: keyof NewRow, value: string) {
-    setGroups(g => {
-      const next = [...g];
-      next[gIdx] = {
-        ...next[gIdx],
-        newRows: next[gIdx].newRows.map(r => r.tempId === tempId ? { ...r, [field]: value } : r),
-      };
-      return next;
-    });
+  function addRow(sIdx: number, gIdx: number) {
+    mutateGroup(sIdx, gIdx, g => ({
+      ...g,
+      rows: [...g.rows, { key: newKey(), conditionFound: "Good / Working", physicalQty: "", damageStatus: "None", remarks: "" }],
+    }));
   }
 
-  function cancelNewRow(gIdx: number, tempId: string) {
-    setGroups(g => {
-      const next = [...g];
-      next[gIdx] = { ...next[gIdx], newRows: next[gIdx].newRows.filter(r => r.tempId !== tempId) };
-      return next;
-    });
+  function removeRow(sIdx: number, gIdx: number, key: string) {
+    mutateGroup(sIdx, gIdx, g => ({
+      ...g,
+      rows: g.rows.length > 1 ? g.rows.filter(r => r.key !== key) : g.rows,
+    }));
   }
 
-  async function saveNewRow(gIdx: number, tempId: string) {
-    const group = groups[gIdx];
-    const row = group.newRows.find(r => r.tempId === tempId);
-    if (!row) return;
+  function updateRow(sIdx: number, gIdx: number, key: string, field: keyof EditRow, value: string) {
+    mutateGroup(sIdx, gIdx, g => ({
+      ...g,
+      rows: g.rows.map(r => r.key === key ? { ...r, [field]: value } : r),
+    }));
+  }
 
-    setGroups(g => {
-      const next = [...g];
-      next[gIdx] = { ...next[gIdx], newRows: next[gIdx].newRows.map(r => r.tempId === tempId ? { ...r, saving: true } : r) };
-      return next;
-    });
+  async function saveAudit() {
+    setSaving(true);
+    const rows: Array<Record<string, unknown>> = [];
+    for (const section of sections) {
+      for (const group of section.groups) {
+        for (const r of group.rows) {
+          if (r.physicalQty === "") continue; // only persist filled-in counts
+          rows.push({
+            referenceId: group.refId,
+            referenceName: group.name,
+            referenceCode: group.code,
+            expectedQuantity: group.expected,
+            physicalQuantity: parseInt(r.physicalQty) || 0,
+            conditionFound: r.conditionFound,
+            damageStatus: r.damageStatus,
+            remarks: r.remarks,
+          });
+        }
+      }
+    }
 
     const res = await fetch(`/api/audits/${id}/items`, {
-      method: "POST",
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        referenceId: group.item.id,
-        referenceName: group.item.itemName,
-        referenceCode: group.item.itemCode,
-        expectedQuantity: group.item.currentStock,
-        physicalQuantity: parseInt(row.physicalQty) || 0,
-        conditionFound: row.conditionFound,
-        damageStatus: row.damageStatus !== "None" ? row.damageStatus : null,
-        remarks: row.remarks || null,
-      }),
+      body: JSON.stringify({ rows }),
     });
-
+    setSaving(false);
     if (res.ok) {
-      const saved = await res.json() as ConditionRow;
-      toast.success("Condition recorded");
-      setGroups(g => {
-        const next = [...g];
-        next[gIdx] = {
-          ...next[gIdx],
-          rows: [...next[gIdx].rows, saved],
-          newRows: next[gIdx].newRows.filter(r => r.tempId !== tempId),
-        };
-        return next;
-      });
+      toast.success(`Audit saved — ${rows.length} entr${rows.length === 1 ? "y" : "ies"} recorded`);
+      load();
     } else {
-      const d = await res.json() as { error?: string };
-      toast.error(d.error ?? "Failed to save");
-      setGroups(g => {
-        const next = [...g];
-        next[gIdx] = { ...next[gIdx], newRows: next[gIdx].newRows.map(r => r.tempId === tempId ? { ...r, saving: false } : r) };
-        return next;
-      });
-    }
-  }
-
-  async function deleteRow(gIdx: number, rowId: number) {
-    setDeleting(rowId);
-    const res = await fetch(`/api/audits/${id}/items/${rowId}`, { method: "DELETE" });
-    setDeleting(null);
-    if (res.ok) {
-      toast.success("Entry removed");
-      setGroups(g => {
-        const next = [...g];
-        next[gIdx] = { ...next[gIdx], rows: next[gIdx].rows.filter(r => r.id !== rowId) };
-        return next;
-      });
-    } else {
-      toast.error("Failed to remove entry");
+      toast.error("Failed to save audit");
     }
   }
 
@@ -245,19 +248,21 @@ export default function AuditDetailPage() {
   const statusColor = ({ Draft: "bg-gray-100 text-gray-700", "In Progress": "bg-blue-100 text-blue-700", Completed: "bg-green-100 text-green-700" } as Record<string, string>)[audit.status] ?? "bg-secondary text-secondary-foreground";
   const isEditable = audit.status !== "Completed";
 
-  const auditedCount = groups.filter(g => g.rows.length > 0).length;
-  const totalExpected = groups.filter(g => g.rows.length > 0).reduce((s, g) => s + g.item.currentStock, 0);
-  const totalPhysical = groups.reduce((s, g) => s + g.rows.reduce((rs, r) => rs + r.physicalQuantity, 0), 0);
-  const shortageCount = groups.filter(g => {
-    if (!g.rows.length) return false;
-    const phy = g.rows.reduce((s, r) => s + r.physicalQuantity, 0);
-    return phy < g.item.currentStock;
+  const allGroups = sections.flatMap(s => s.groups);
+  const totalGroups = allGroups.length;
+  const auditedCount = allGroups.filter(g => g.rows.some(r => r.physicalQty !== "")).length;
+  const totalExpected = allGroups.reduce((s, g) => s + g.expected, 0);
+  const totalPhysical = allGroups.reduce((s, g) => s + g.rows.reduce((rs, r) => rs + (parseInt(r.physicalQty) || 0), 0), 0);
+  const shortageCount = allGroups.filter(g => {
+    if (!g.rows.some(r => r.physicalQty !== "")) return false;
+    const phy = g.rows.reduce((s, r) => s + (parseInt(r.physicalQty) || 0), 0);
+    return phy < g.expected;
   }).length;
 
-  const colCount = isEditable ? 7 : 6;
+  const colCount = isEditable ? 6 : 5;
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 pb-28">
       {/* Header */}
       <div className="flex items-start gap-4">
         <button onClick={() => window.history.back()} className="p-2 border border-input rounded-lg hover:bg-muted mt-0.5 shrink-0">
@@ -293,7 +298,7 @@ export default function AuditDetailPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: "Items Audited", value: `${auditedCount} / ${groups.length}`, color: "text-blue-600" },
+          { label: "Items Audited", value: `${auditedCount} / ${totalGroups}`, color: "text-blue-600" },
           { label: "Shortages", value: shortageCount, color: shortageCount > 0 ? "text-red-600" : "text-gray-700" },
           { label: "Expected Total", value: totalExpected, color: "text-gray-700" },
           { label: "Physical Total", value: totalPhysical, color: totalPhysical < totalExpected && totalExpected > 0 ? "text-red-600" : "text-green-600" },
@@ -305,199 +310,171 @@ export default function AuditDetailPage() {
         ))}
       </div>
 
-      {/* Audit Table */}
-      <div className="bg-white border border-border rounded-xl overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-border">
-          <h2 className="font-semibold text-sm">
-            {audit.auditType === "assets" ? "Assets" : "Inventory Items"} — {audit.departmentName}
-          </h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {groups.length} item{groups.length !== 1 ? "s" : ""} in department
-            {isEditable && " \u00b7 Use \u201c+ Add Condition\u201d on each item row to record physical counts"}
-          </p>
-        </div>
+      {isEditable && (
+        <p className="text-sm text-muted-foreground bg-blue-50 border border-blue-100 rounded-lg px-4 py-2.5">
+          All items in <strong>{audit.departmentName}</strong> are pre-loaded below with their expected quantities.
+          Fill in the <strong>Physical Qty</strong> for each item. Use <strong>+ Split condition</strong> if one item
+          spans multiple conditions (e.g. some Good, some Damaged). Click <strong>Save Audit</strong> when done.
+        </p>
+      )}
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50">
-              <tr>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-56">Item</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground min-w-[140px]">Condition</th>
-                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-28">Expected Qty</th>
-                <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-28">Physical Qty</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-36">Damage Status</th>
-                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Remarks</th>
-                {isEditable && <th className="w-20" />}
-              </tr>
-            </thead>
-            <tbody>
-              {groups.length === 0 ? (
+      {/* Sections */}
+      {sections.map((section, sIdx) => (
+        <div key={section.kind} className="bg-white border border-border rounded-xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
+            {section.kind === "inventory" ? <Boxes className="w-4 h-4 text-muted-foreground" /> : <Package className="w-4 h-4 text-muted-foreground" />}
+            <h2 className="font-semibold text-sm">{section.title}</h2>
+            <span className="text-xs text-muted-foreground">— {section.groups.length} item{section.groups.length !== 1 ? "s" : ""} in {audit.departmentName}</span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
                 <tr>
-                  <td colSpan={colCount} className="px-4 py-16 text-center text-muted-foreground">
-                    <Package className="w-8 h-8 mx-auto mb-2 opacity-30" />
-                    <p className="text-sm">No items found in {audit.departmentName}</p>
-                  </td>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-64">Item</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground min-w-[150px]">Condition</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-24">Expected</th>
+                  <th className="px-4 py-2.5 text-right font-medium text-muted-foreground w-28">Physical Qty</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-36">Damage Status</th>
+                  <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Remarks</th>
+                  {isEditable && <th className="w-10" />}
                 </tr>
-              ) : groups.map((group, gIdx) => {
-                const totalPhy = group.rows.reduce((s, r) => s + r.physicalQuantity, 0);
-                const diff = totalPhy - group.item.currentStock;
-                const hasEntries = group.rows.length > 0 || group.newRows.length > 0;
+              </thead>
+              <tbody>
+                {section.groups.length === 0 ? (
+                  <tr>
+                    <td colSpan={colCount + 1} className="px-4 py-12 text-center text-muted-foreground">
+                      <Package className="w-7 h-7 mx-auto mb-2 opacity-30" />
+                      <p className="text-sm">No {section.kind === "inventory" ? "inventory items" : "assets"} in {audit.departmentName}</p>
+                    </td>
+                  </tr>
+                ) : section.groups.map((group, gIdx) => {
+                  const totalPhy = group.rows.reduce((s, r) => s + (parseInt(r.physicalQty) || 0), 0);
+                  const anyFilled = group.rows.some(r => r.physicalQty !== "");
+                  const diff = totalPhy - group.expected;
 
-                return (
-                  <Fragment key={group.item.id}>
-                    {/* Item header row */}
-                    <tr className={`border-t-2 border-border ${gIdx % 2 === 0 ? "bg-slate-50/80" : "bg-blue-50/30"}`}>
-                      <td className="px-4 py-2.5" colSpan={colCount}>
-                        <div className="flex items-center justify-between gap-4">
-                          <div className="flex items-center gap-3">
-                            <Package className="w-4 h-4 text-muted-foreground shrink-0" />
-                            <div>
-                              <span className="font-semibold text-sm">{group.item.itemName}</span>
-                              <span className="ml-2 text-xs font-mono text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">{group.item.itemCode}</span>
-                            </div>
-                            <span className="text-xs text-muted-foreground border border-border rounded px-1.5 py-0.5">
-                              Stock: <strong>{group.item.currentStock}</strong>
-                            </span>
-                            {group.rows.length > 0 && (
-                              <span className="text-xs text-muted-foreground">
-                                Physical: <strong className={diff < 0 ? "text-red-600" : diff > 0 ? "text-green-600" : "text-gray-700"}>{totalPhy}</strong>
-                                {diff !== 0 && <span className={`ml-1 ${diff < 0 ? "text-red-600" : "text-green-600"}`}>({diff > 0 ? "+" : ""}{diff})</span>}
+                  return (
+                    <Fragment key={group.code || group.refId}>
+                      {group.rows.map((row, rIdx) => (
+                        <tr
+                          key={row.key}
+                          className={`border-t ${rIdx === 0 ? "border-border" : "border-border/30"} ${gIdx % 2 === 0 ? "" : "bg-slate-50/40"}`}
+                        >
+                          {/* Item cell — only on first row, spans the group via rowSpan */}
+                          {rIdx === 0 ? (
+                            <td className="px-4 py-2 align-top" rowSpan={group.rows.length}>
+                              <div className="font-medium">{group.name}</div>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-xs font-mono text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded">{group.code}</span>
+                              </div>
+                              {anyFilled && (
+                                <div className="text-xs mt-1.5">
+                                  <span className="text-muted-foreground">Counted: </span>
+                                  <strong className={diff < 0 ? "text-red-600" : diff > 0 ? "text-green-600" : "text-emerald-600"}>{totalPhy}</strong>
+                                  <span className="text-muted-foreground">/{group.expected}</span>
+                                  {diff !== 0 && <span className={diff < 0 ? "text-red-600" : "text-green-600"}> ({diff > 0 ? "+" : ""}{diff})</span>}
+                                  {diff === 0 && <span className="text-emerald-600"> ✓</span>}
+                                </div>
+                              )}
+                            </td>
+                          ) : null}
+
+                          <td className="px-4 py-2">
+                            {isEditable ? (
+                              <select
+                                value={row.conditionFound}
+                                onChange={e => updateRow(sIdx, gIdx, row.key, "conditionFound", e.target.value)}
+                                className="w-full border border-input rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring bg-white"
+                              >
+                                {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
+                              </select>
+                            ) : (
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${conditionBadge(row.conditionFound)}`}>
+                                {row.conditionFound}
                               </span>
                             )}
-                          </div>
-                          {isEditable && (
-                            <button
-                              onClick={() => addNewRow(gIdx)}
-                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 px-2.5 py-1 rounded-md hover:bg-blue-100 border border-blue-200 shrink-0 transition-colors"
-                            >
-                              <Plus className="w-3 h-3" /> Add Condition
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                          </td>
 
-                    {/* Saved condition rows */}
-                    {group.rows.map(row => (
-                      <tr key={row.id} className="border-t border-border/40 hover:bg-muted/20">
-                        <td className="px-4 py-2 pl-14" />
-                        <td className="px-4 py-2">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${conditionBadge(row.conditionFound)}`}>
-                            {row.conditionFound ?? "—"}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2 text-right font-mono text-xs text-muted-foreground">{group.item.currentStock}</td>
-                        <td className="px-4 py-2 text-right font-mono font-semibold">{row.physicalQuantity}</td>
-                        <td className="px-4 py-2 text-xs text-muted-foreground">{row.damageStatus ?? "—"}</td>
-                        <td className="px-4 py-2 text-xs text-muted-foreground max-w-[200px] truncate">{row.remarks ?? "—"}</td>
-                        {isEditable && (
-                          <td className="px-4 py-2 text-center">
+                          <td className="px-4 py-2 text-right font-mono text-xs text-muted-foreground">{group.expected}</td>
+
+                          <td className="px-4 py-2">
+                            {isEditable ? (
+                              <input
+                                type="number"
+                                min={0}
+                                placeholder="—"
+                                value={row.physicalQty}
+                                onChange={e => updateRow(sIdx, gIdx, row.key, "physicalQty", e.target.value)}
+                                className="w-full border border-input rounded-md px-2 py-1 text-xs text-right font-mono focus:outline-none focus:ring-1 focus:ring-ring bg-white"
+                              />
+                            ) : (
+                              <span className="font-mono font-semibold">{row.physicalQty || "—"}</span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-2">
+                            {isEditable ? (
+                              <select
+                                value={row.damageStatus}
+                                onChange={e => updateRow(sIdx, gIdx, row.key, "damageStatus", e.target.value)}
+                                className="w-full border border-input rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring bg-white"
+                              >
+                                {DAMAGE_STATUSES.map(d => <option key={d} value={d}>{d}</option>)}
+                              </select>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">{row.damageStatus}</span>
+                            )}
+                          </td>
+
+                          <td className="px-4 py-2">
+                            {isEditable ? (
+                              <input
+                                placeholder="Remarks..."
+                                value={row.remarks}
+                                onChange={e => updateRow(sIdx, gIdx, row.key, "remarks", e.target.value)}
+                                className="w-full border border-input rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring bg-white"
+                              />
+                            ) : (
+                              <span className="text-xs text-muted-foreground">{row.remarks || "—"}</span>
+                            )}
+                          </td>
+
+                          {isEditable && (
+                            <td className="px-2 py-2 text-center">
+                              {group.rows.length > 1 && (
+                                <button
+                                  onClick={() => removeRow(sIdx, gIdx, row.key)}
+                                  title="Remove this condition row"
+                                  className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+
+                      {isEditable && (
+                        <tr className={`${gIdx % 2 === 0 ? "" : "bg-slate-50/40"}`}>
+                          <td className="px-4 pb-2 pt-0" colSpan={colCount + 1}>
                             <button
-                              onClick={() => deleteRow(gIdx, row.id)}
-                              disabled={deleting === row.id}
-                              title="Remove entry"
-                              className="p-1.5 text-muted-foreground hover:text-red-600 hover:bg-red-50 rounded-md disabled:opacity-40 transition-colors"
+                              onClick={() => addRow(sIdx, gIdx)}
+                              className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700 ml-1"
                             >
-                              {deleting === row.id
-                                ? <span className="text-xs">...</span>
-                                : <Trash2 className="w-3.5 h-3.5" />}
+                              <Plus className="w-3 h-3" /> Split condition
                             </button>
                           </td>
-                        )}
-                      </tr>
-                    ))}
-
-                    {/* New unsaved rows */}
-                    {group.newRows.map(newRow => (
-                      <tr key={newRow.tempId} className="border-t border-blue-200 bg-blue-50/40">
-                        <td className="px-4 py-2 pl-14" />
-                        <td className="px-4 py-2">
-                          <select
-                            value={newRow.conditionFound}
-                            onChange={e => updateNewRow(gIdx, newRow.tempId, "conditionFound", e.target.value)}
-                            disabled={newRow.saving}
-                            className="w-full border border-input rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring bg-white"
-                          >
-                            {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-4 py-2 text-right font-mono text-xs text-muted-foreground">{group.item.currentStock}</td>
-                        <td className="px-4 py-2">
-                          <input
-                            type="number"
-                            min={0}
-                            placeholder="0"
-                            value={newRow.physicalQty}
-                            onChange={e => updateNewRow(gIdx, newRow.tempId, "physicalQty", e.target.value)}
-                            disabled={newRow.saving}
-                            className="w-full border border-input rounded-md px-2 py-1 text-xs text-right font-mono focus:outline-none focus:ring-1 focus:ring-ring bg-white"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <select
-                            value={newRow.damageStatus}
-                            onChange={e => updateNewRow(gIdx, newRow.tempId, "damageStatus", e.target.value)}
-                            disabled={newRow.saving}
-                            className="w-full border border-input rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring bg-white"
-                          >
-                            {DAMAGE_STATUSES.map(d => <option key={d} value={d}>{d}</option>)}
-                          </select>
-                        </td>
-                        <td className="px-4 py-2">
-                          <input
-                            placeholder="Remarks..."
-                            value={newRow.remarks}
-                            onChange={e => updateNewRow(gIdx, newRow.tempId, "remarks", e.target.value)}
-                            disabled={newRow.saving}
-                            className="w-full border border-input rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring bg-white"
-                          />
-                        </td>
-                        <td className="px-4 py-2">
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={() => saveNewRow(gIdx, newRow.tempId)}
-                              disabled={newRow.saving || !newRow.physicalQty}
-                              className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-500 disabled:opacity-50"
-                            >
-                              {newRow.saving ? "..." : "Save"}
-                            </button>
-                            <button
-                              onClick={() => cancelNewRow(gIdx, newRow.tempId)}
-                              disabled={newRow.saving}
-                              className="px-2 py-1 text-xs border border-input rounded-md hover:bg-muted"
-                            >
-                              ✕
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-
-                    {/* Summary row — only when there are entries */}
-                    {hasEntries && (
-                      <tr className="border-t border-border/40 bg-muted/30">
-                        <td className="px-4 py-1.5 pl-14" />
-                        <td className="px-4 py-1.5 text-xs font-semibold text-muted-foreground">Total</td>
-                        <td className="px-4 py-1.5 text-right font-mono text-xs text-muted-foreground">{group.item.currentStock}</td>
-                        <td className={`px-4 py-1.5 text-right font-mono text-xs font-bold ${
-                          diff < 0 ? "text-red-600" : diff > 0 ? "text-green-600" : "text-emerald-600"
-                        }`}>
-                          {totalPhy}
-                        </td>
-                        <td className="px-4 py-1.5 text-xs" colSpan={isEditable ? 3 : 2}>
-                          {diff < 0 && <span className="text-red-600 font-medium">⚠ Shortage: {Math.abs(diff)}</span>}
-                          {diff > 0 && <span className="text-green-600 font-medium">↑ Excess: {diff}</span>}
-                          {diff === 0 && group.rows.length > 0 && <span className="text-emerald-600 font-medium">✓ Match</span>}
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                );
-              })}
-            </tbody>
-          </table>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      ))}
 
       {/* Final Report */}
       <div className="bg-white border border-border rounded-xl p-5 space-y-4">
@@ -519,6 +496,23 @@ export default function AuditDetailPage() {
           </button>
         </div>
       </div>
+
+      {/* Sticky Save bar */}
+      {isEditable && (
+        <div className="fixed bottom-0 left-0 right-0 bg-white/95 backdrop-blur border-t border-border px-6 py-3 flex items-center justify-between z-20">
+          <span className="text-sm text-muted-foreground">
+            {auditedCount} of {totalGroups} items counted · {totalPhysical} physical units recorded
+          </span>
+          <button
+            onClick={saveAudit}
+            disabled={saving}
+            className="flex items-center gap-2 px-5 py-2.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-500 disabled:opacity-60 shadow-sm"
+          >
+            <Save className="w-4 h-4" />
+            {saving ? "Saving..." : "Save Audit"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
