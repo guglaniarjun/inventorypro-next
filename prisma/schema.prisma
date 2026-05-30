@@ -328,7 +328,8 @@ model ActivityLog {
 
   tenant Tenant? @relation(fields: [tenantId], references: [id])
 
-  @@index([tenantId, timestamp(sort: Desc)])
+  @@index([tenantId])
+  @@index([timestamp])
   @@index([userId])
   @@map("activity_logs")
 }
