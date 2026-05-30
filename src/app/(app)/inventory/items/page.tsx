@@ -42,13 +42,14 @@ export default function InventoryItemsPage() {
     if (filters.departmentId) p.set("departmentId", filters.departmentId);
     fetch(`/api/inventory/items?${p}`)
       .then(r => r.json())
-      .then((d: { data: Item[]; total: number; categories?: string[] }) => {
-        setItems(d.data);
-        setTotal(d.total);
-        if (d.categories?.length) setCategories(d.categories);
+      .then((d: { data: Item[]; total: number }) => {
+        setItems(d.data ?? []);
+        setTotal(d.total ?? 0);
+        const cats = [...new Set((d.data ?? []).map(i => i.category).filter(Boolean))].sort();
+        if (cats.length) setCategories(cats);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch((err) => { console.error("Failed to load items:", err); setLoading(false); });
   }, [filters]);
 
   useEffect(() => { load(); }, [load]);
