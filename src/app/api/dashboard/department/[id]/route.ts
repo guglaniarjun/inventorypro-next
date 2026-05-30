@@ -12,16 +12,16 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   const [dept, totalItems, totalAssets, recentItems, deptItems] = await Promise.all([
     prisma.department.findFirst({ where: { id: deptId, tenantId: session.user.tenantId ?? undefined } }),
-    prisma.inventoryItem.count({ where: { departmentId: deptId, status: { not: "Inactive" } } }),
-    prisma.asset.count({ where: { departmentId: deptId, status: { not: "Discarded" } } }),
+    prisma.inventoryItem.count({ where: { departmentId: deptId, tenantId: session.user.tenantId ?? undefined, status: { not: "Inactive" } } }),
+    prisma.asset.count({ where: { departmentId: deptId, tenantId: session.user.tenantId ?? undefined, status: { not: "Discarded" } } }),
     prisma.inventoryItem.findMany({
-      where: { departmentId: deptId, status: { not: "Inactive" } },
+      where: { departmentId: deptId, tenantId: session.user.tenantId ?? undefined, status: { not: "Inactive" } },
       orderBy: { updatedAt: "desc" },
       take: 10,
       select: { id: true, itemName: true, itemCode: true, currentStock: true, unit: true, status: true, minimumStockLevel: true },
     }),
     prisma.inventoryItem.findMany({
-      where: { departmentId: deptId, status: { not: "Inactive" } },
+      where: { departmentId: deptId, tenantId: session.user.tenantId ?? undefined, status: { not: "Inactive" } },
       select: { currentStock: true, minimumStockLevel: true },
     }),
   ]);
