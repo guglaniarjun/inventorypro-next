@@ -21,14 +21,14 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!dept) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const items = await prisma.inventoryItem.findMany({
-    where: { departmentId: dept.id, status: { not: "Inactive" } },
+    where: { departmentId: dept.id, tenantId: session.user.tenantId ?? undefined, status: { not: "Inactive" } },
     select: { id: true, itemName: true, itemCode: true, category: true, currentStock: true, unit: true, status: true },
     take: 20,
     orderBy: { updatedAt: "desc" },
   });
 
   const assets = await prisma.asset.findMany({
-    where: { departmentId: dept.id, status: { not: "Discarded" } },
+    where: { departmentId: dept.id, tenantId: session.user.tenantId ?? undefined, status: { not: "Discarded" } },
     select: { id: true, assetName: true, assetCode: true, assetCategory: true, condition: true, status: true },
     take: 20,
     orderBy: { updatedAt: "desc" },
