@@ -22,6 +22,7 @@ export default function InventoryItemsPage() {
   const [canAdd, setCanAdd] = useState(false);
   const [confirmDel, setConfirmDel] = useState<Item | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/auth/me").then(r => r.json())
@@ -35,21 +36,34 @@ export default function InventoryItemsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setError(null);
     const p = new URLSearchParams({ limit: "100" });
     if (filters.search) p.set("search", filters.search);
     if (filters.category) p.set("category", filters.category);
     if (filters.status) p.set("status", filters.status);
     if (filters.departmentId) p.set("departmentId", filters.departmentId);
     fetch(`/api/inventory/items?${p}`)
-      .then(r => r.json())
-      .then((d: { data: Item[]; total: number }) => {
-        setItems(d.data ?? []);
-        setTotal(d.total ?? 0);
-        const cats = [...new Set((d.data ?? []).map(i => i.category).filter(Boolean))].sort();
+      .then(async (r) => {
+        const d = await r.json().catch(() => null) as { data?: Item[]; total?: number; error?: string; detail?: string } | null;
+        if (!r.ok) {
+          throw new Error(d?.error ? `${d.error}${d.detail ? `: ${d.detail}` : ""}` : `Request failed (${r.status})`);
+        }
+        return d;
+      })
+      .then((d) => {
+        const rows = Array.isArray(d?.data) ? d!.data! : [];
+        setItems(rows);
+        setTotal(Number(d?.total ?? rows.length));
+        const cats = [...new Set(rows.map(i => i.category).filter(Boolean))].sort();
         if (cats.length) setCategories(cats);
         setLoading(false);
       })
-      .catch((err) => { console.error("Failed to load items:", err); setLoading(false); });
+      .catch((err) => {
+        console.error("Failed to load items:", err);
+        setError(err instanceof Error ? err.message : "Failed to load items");
+        setItems([]);
+        setLoading(false);
+      });
   }, [filters]);
 
   useEffect(() => { load(); }, [load]);
@@ -98,6 +112,12 @@ export default function InventoryItemsPage() {
           <option value="Out of Stock">Out of Stock</option>
         </select>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+          Failed to load items: {error}
+        </div>
+      )}
 
       <div className="bg-white border border-border rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
@@ -156,7 +176,7 @@ export default function InventoryItemsPage() {
                     </tr>
                   ))
               }
-              {!loading && items.length === 0 && (
+              {!loading && !error && items.length === 0 && (
                 <tr><td colSpan={isAdmin ? 6 : 5} className="text-center text-muted-foreground py-12">No items found</td></tr>
               )}
             </tbody>
