@@ -274,6 +274,7 @@ model Audit {
 model AuditItem {
   id               Int      @id @default(autoincrement())
   auditId          Int      @map("audit_id")
+  referenceType    String?  @map("reference_type")
   referenceId      Int      @map("reference_id")
   referenceName    String   @map("reference_name")
   referenceCode    String   @map("reference_code")
