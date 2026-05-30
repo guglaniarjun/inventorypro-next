@@ -3,6 +3,8 @@ import { getSession } from "@/lib/session";
 import prisma from "@/lib/prisma";
 import { logActivity } from "@/lib/activity";
 
+export const dynamic = "force-dynamic";
+
 export async function GET(req: NextRequest) {
   const session = await getSession();
   if (!session.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -53,7 +55,7 @@ export async function GET(req: NextRequest) {
     total,
     page,
     limit,
-  });
+  }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(req: NextRequest) {
