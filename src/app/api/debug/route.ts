@@ -20,6 +20,9 @@ export async function GET() {
     distinctDeptTenants,
     orphanItemRows,
     orphanAssetRows,
+    departmentsForSessionTenant,
+    sampleItems,
+    sampleAssets,
   ] = await Promise.all([
     prisma.inventoryItem.count({ where: { tenantId: tid ?? undefined } }),
     prisma.inventoryItem.count(),
@@ -30,6 +33,19 @@ export async function GET() {
     prisma.department.findMany({ distinct: ["tenantId"], select: { tenantId: true } }),
     prisma.$queryRaw<Array<{ c: number }>>`SELECT COUNT(*)::int AS c FROM inventory_items i LEFT JOIN departments d ON i.department_id = d.id WHERE d.id IS NULL`,
     prisma.$queryRaw<Array<{ c: number }>>`SELECT COUNT(*)::int AS c FROM assets a LEFT JOIN departments d ON a.department_id = d.id WHERE d.id IS NULL`,
+    prisma.department.count({ where: { tenantId: tid ?? undefined } }),
+    prisma.inventoryItem.findMany({
+      where: { tenantId: tid ?? undefined },
+      take: 5,
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, itemName: true, itemCode: true, departmentId: true, tenantId: true, status: true },
+    }),
+    prisma.asset.findMany({
+      where: { tenantId: tid ?? undefined },
+      take: 5,
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, assetName: true, assetCode: true, departmentId: true, tenantId: true, status: true },
+    }),
   ]);
 
   return NextResponse.json(
@@ -46,6 +62,9 @@ export async function GET() {
       distinctDeptTenantIds: distinctDeptTenants.map((x) => x.tenantId),
       orphanedItems: orphanItemRows[0]?.c ?? 0,
       orphanedAssets: orphanAssetRows[0]?.c ?? 0,
+      departmentsForSessionTenant,
+      sampleItems,
+      sampleAssets,
     },
     { headers: { "Cache-Control": "no-store" } }
   );
