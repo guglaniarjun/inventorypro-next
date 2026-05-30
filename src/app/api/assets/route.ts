@@ -28,34 +28,48 @@ export async function GET(req: NextRequest) {
     ...(departmentId ? { departmentId: parseInt(departmentId) } : {}),
   };
 
-  const [assets, total] = await Promise.all([
-    prisma.asset.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { updatedAt: "desc" },
-      include: {
-        department: { select: { departmentName: true } },
-        currentLocation: { select: { campusName: true, buildingName: true, roomName: true } },
-      },
-    }),
-    prisma.asset.count({ where }),
-  ]);
+  try {
+    const [assets, total] = await Promise.all([
+      prisma.asset.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { updatedAt: "desc" },
+        include: {
+          currentLocation: { select: { campusName: true, buildingName: true, roomName: true } },
+        },
+      }),
+      prisma.asset.count({ where }),
+    ]);
 
-  return NextResponse.json({
-    data: assets.map((a) => ({
-      ...a,
-      departmentName: a.department.departmentName,
-      locationPath: a.currentLocation
-        ? [a.currentLocation.campusName, a.currentLocation.buildingName, a.currentLocation.roomName]
-            .filter(Boolean)
-            .join(" > ")
-        : null,
-    })),
-    total,
-    page,
-    limit,
-  }, { headers: { "Cache-Control": "no-store" } });
+    const deptIds = [...new Set(assets.map((a) => a.departmentId))];
+    const depts = await prisma.department.findMany({
+      where: { id: { in: deptIds } },
+      select: { id: true, departmentName: true },
+    });
+    const deptMap = new Map(depts.map((d) => [d.id, d.departmentName]));
+
+    return NextResponse.json({
+      data: assets.map((a) => ({
+        ...a,
+        departmentName: deptMap.get(a.departmentId) ?? "Unknown",
+        locationPath: a.currentLocation
+          ? [a.currentLocation.campusName, a.currentLocation.buildingName, a.currentLocation.roomName]
+              .filter(Boolean)
+              .join(" > ")
+          : null,
+      })),
+      total,
+      page,
+      limit,
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    console.error("GET /api/assets failed:", err);
+    return NextResponse.json(
+      { error: "Failed to load assets", detail: String(err) },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
