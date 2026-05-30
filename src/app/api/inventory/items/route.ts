@@ -37,6 +37,14 @@ export async function GET(req: NextRequest) {
   };
 
   try {
+    console.log("[debug] GET /api/inventory/items", {
+      username: session.user.username,
+      role: session.user.role,
+      tenantId: session.user.tenantId,
+      departmentId: departmentId ?? null,
+      where: JSON.stringify(where),
+    });
+
     const [items, total] = await Promise.all([
       prisma.inventoryItem.findMany({
         where,
@@ -46,6 +54,8 @@ export async function GET(req: NextRequest) {
       }),
       prisma.inventoryItem.count({ where }),
     ]);
+
+    console.log("[debug] /api/inventory/items result", { count: items.length, total });
 
     const deptIds = [...new Set(items.map((i) => i.departmentId))];
     const depts = await prisma.department.findMany({
