@@ -36,29 +36,41 @@ export async function GET(req: NextRequest) {
     ...(itemType ? { itemType } : {}),
   };
 
-  const [items, total] = await Promise.all([
-    prisma.inventoryItem.findMany({
-      where,
-      skip,
-      take: limit,
-      orderBy: { updatedAt: "desc" },
-      include: {
-        department: { select: { departmentName: true } },
-      },
-    }),
-    prisma.inventoryItem.count({ where }),
-  ]);
+  try {
+    const [items, total] = await Promise.all([
+      prisma.inventoryItem.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { updatedAt: "desc" },
+      }),
+      prisma.inventoryItem.count({ where }),
+    ]);
 
-  return NextResponse.json({
-    data: items.map((item) => ({
-      ...item,
-      departmentName: item.department.departmentName,
-      isLowStock: item.currentStock <= item.minimumStockLevel,
-    })),
-    total,
-    page,
-    limit,
-  }, { headers: { "Cache-Control": "no-store" } });
+    const deptIds = [...new Set(items.map((i) => i.departmentId))];
+    const depts = await prisma.department.findMany({
+      where: { id: { in: deptIds } },
+      select: { id: true, departmentName: true },
+    });
+    const deptMap = new Map(depts.map((d) => [d.id, d.departmentName]));
+
+    return NextResponse.json({
+      data: items.map((item) => ({
+        ...item,
+        departmentName: deptMap.get(item.departmentId) ?? "Unknown",
+        isLowStock: item.currentStock <= item.minimumStockLevel,
+      })),
+      total,
+      page,
+      limit,
+    }, { headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    console.error("GET /api/inventory/items failed:", err);
+    return NextResponse.json(
+      { error: "Failed to load items", detail: String(err) },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
