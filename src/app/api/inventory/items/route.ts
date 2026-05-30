@@ -34,57 +34,29 @@ export async function GET(req: NextRequest) {
     ...(itemType ? { itemType } : {}),
   };
 
-  const tenantId = session.user.tenantId ?? undefined;
-
-  const [items, total, categoryRows] = await Promise.all([
+  const [items, total] = await Promise.all([
     prisma.inventoryItem.findMany({
       where,
       skip,
       take: limit,
       orderBy: { updatedAt: "desc" },
-      select: {
-        id: true,
-        itemName: true,
-        itemCode: true,
-        category: true,
-        itemType: true,
-        currentStock: true,
-        minimumStockLevel: true,
-        unit: true,
-        status: true,
+      include: {
         department: { select: { departmentName: true } },
       },
     }),
     prisma.inventoryItem.count({ where }),
-    prisma.inventoryItem.findMany({
-      where: { ...(tenantId ? { tenantId } : {}), status: { not: "Inactive" } },
-      select: { category: true },
-      distinct: ["category"],
-      orderBy: { category: "asc" },
-    }),
   ]);
 
-  const res = NextResponse.json({
+  return NextResponse.json({
     data: items.map((item) => ({
-      id: item.id,
-      itemName: item.itemName,
-      itemCode: item.itemCode,
-      category: item.category,
-      itemType: item.itemType,
-      currentStock: item.currentStock,
-      minimumStockLevel: item.minimumStockLevel,
-      unit: item.unit,
-      status: item.status,
+      ...item,
       departmentName: item.department.departmentName,
       isLowStock: item.currentStock <= item.minimumStockLevel,
     })),
     total,
     page,
     limit,
-    categories: categoryRows.map((c) => c.category),
   });
-  res.headers.set("Cache-Control", "private, max-age=15, stale-while-revalidate=60");
-  return res;
 }
 
 export async function POST(req: NextRequest) {
