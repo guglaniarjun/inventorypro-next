@@ -29,6 +29,14 @@ export async function GET(req: NextRequest) {
   };
 
   try {
+    console.log("[debug] GET /api/assets", {
+      username: session.user.username,
+      role: session.user.role,
+      tenantId: session.user.tenantId,
+      departmentId: departmentId ?? null,
+      where: JSON.stringify(where),
+    });
+
     const [assets, total] = await Promise.all([
       prisma.asset.findMany({
         where,
@@ -41,6 +49,8 @@ export async function GET(req: NextRequest) {
       }),
       prisma.asset.count({ where }),
     ]);
+
+    console.log("[debug] /api/assets result", { count: assets.length, total });
 
     const deptIds = [...new Set(assets.map((a) => a.departmentId))];
     const depts = await prisma.department.findMany({
