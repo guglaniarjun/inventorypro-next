@@ -37,6 +37,7 @@ export default function AssetsPage() {
   const [canAdd, setCanAdd] = useState(false);
   const [confirmDel, setConfirmDel] = useState<Asset | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const [locationData, setLocationData] = useState<LocationGroup[]>([]);
   const [locationLoading, setLocationLoading] = useState(false);
@@ -58,15 +59,32 @@ export default function AssetsPage() {
 
   const load = useCallback(() => {
     setLoading(true);
+    setError(null);
     const p = new URLSearchParams({ limit: "200" });
     if (search) p.set("search", search);
     if (category) p.set("category", category);
     if (condition) p.set("condition", condition);
     if (status) p.set("status", status);
     fetch(`/api/assets?${p}`)
-      .then(r => r.json())
-      .then((d: { data: Asset[]; total: number }) => { setAssets(d.data); setTotal(d.total); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(async (r) => {
+        const d = await r.json().catch(() => null) as { data?: Asset[]; total?: number; error?: string; detail?: string } | null;
+        if (!r.ok) {
+          throw new Error(d?.error ? `${d.error}${d.detail ? `: ${d.detail}` : ""}` : `Request failed (${r.status})`);
+        }
+        return d;
+      })
+      .then((d) => {
+        const rows = Array.isArray(d?.data) ? d!.data! : [];
+        setAssets(rows);
+        setTotal(Number(d?.total ?? rows.length));
+        setLoading(false);
+      })
+      .catch((err) => {
+        console.error("Failed to load assets:", err);
+        setError(err instanceof Error ? err.message : "Failed to load assets");
+        setAssets([]);
+        setLoading(false);
+      });
   }, [search, category, condition, status]);
 
   useEffect(() => { load(); }, [load]);
@@ -116,6 +134,12 @@ export default function AssetsPage() {
           )}
         </div>
       </div>
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 text-sm">
+          Failed to load assets: {error}
+        </div>
+      )}
 
       {/* LIST VIEW */}
       {view === "list" && (
@@ -193,7 +217,7 @@ export default function AssetsPage() {
                         </tr>
                       ))
                   }
-                  {!loading && assets.length === 0 && <tr><td colSpan={colSpan} className="text-center text-muted-foreground py-12">No assets found</td></tr>}
+                  {!loading && !error && assets.length === 0 && <tr><td colSpan={colSpan} className="text-center text-muted-foreground py-12">No assets found</td></tr>}
                 </tbody>
               </table>
             </div>
